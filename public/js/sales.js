@@ -20,7 +20,9 @@ function invoiceDoc(inv) {
   let rows;
   if (isCtp) {
     // paper-style: all plate sizes listed, filled where invoiced
-    rows = App.meta.products.map(p => {
+    const used = new Set(inv.items.map(i => i.product_id));
+    const plates = c.ctp_invoice_all_sizes ? App.meta.products.filter(p => p.active || used.has(p.id)) : [...App.meta.products.filter(p => used.has(p.id)), ...inv.items.filter(i => !App.meta.products.some(p => p.id === i.product_id)).map(i => ({ id: i.product_id, name: i.product, size_mm: i.size_mm }))].filter((p, k, a) => a.findIndex(x => x.id === p.id) === k);
+    rows = plates.map(p => {
       const its = inv.items.filter(i => i.product_id === p.id);
       const q = its.reduce((s, i) => s + i.qty, 0), amt = its.reduce((s, i) => s + i.line_total, 0);
       const rate = its.length ? [...new Set(its.map(i => i.rate))].map(r => n0(r)).join(' / ') : '';
@@ -48,9 +50,9 @@ function invoiceDoc(inv) {
 }
 function challanDoc(ch, div) {
   const c = App.meta.settings.company || {};
+  const showCost = ch.items.some(i => +i.cost), showSrc = !!ch.standalone;
   const lines = ch.items.map((i, k) => `<tr><td>${k + 1}</td><td class="n">${div === 'ctp' ? n0(i.qty) + ' pcs' : n0(i.qty) + ' pcs' + (i.sqft ? `<div class="muted">${n0(i.sqft)} sq ft</div>` : '') + (i.length_ft ? `<div class="muted">${n0(i.length_ft)} ft</div>` : '')}</td>
-    <td>${esc(i.description || i.product || i.category || '')}${div === 'ctp' && i.size_mm ? ` <span class="muted">${esc(i.size_mm)}</span>` : ''}</td><td class="n">${i.cost ? nf2.format(i.cost) : ''}</td><td>${esc(ch.inv_no || (ch.standalone ? 'Standalone' : ''))}</td></tr>`).join('');
-  const pad = Math.max(0, 8 - ch.items.length);
+    <td>${esc(i.description || i.product || i.category || '')}${div === 'ctp' && i.size_mm ? ` <span class="muted">${esc(i.size_mm)}</span>` : ''}</td>${showCost ? `<td class="n">${i.cost ? nf2.format(i.cost) : ''}</td>` : ''}${showSrc ? '<td>Standalone</td>' : ''}</tr>`).join('');
   return `<div class="doc" style="position:relative">${ch.status === 'cancelled' ? '<div class="watermark">CANCELLED</div>' : ''}
     <div class="doc-head"><div class="doc-logo">${logoMark(c)}<div><h1>${esc(c.name)}</h1><div class="muted">${esc(c.challan_address || c.address)}</div></div></div>
       <div style="text-align:right"><div class="doc-title">${esc(c.challan_title || 'DELIVERY CHALLAN')}</div><div class="mt">${divTag(div)}</div></div></div>
@@ -59,8 +61,8 @@ function challanDoc(ch, div) {
       <div><b>Address:</b> ${esc(ch.address || '')}</div><div><b>Carried by:</b> ${esc(ch.carried_by || '')}</div>
       <div><b>Issuing authority:</b> ${esc(ch.issuing_authority || ch.created_by_name || '')}</div><div><b>Related invoice:</b> ${esc(ch.inv_no || '—')}</div>
       <div><b>Prepared by:</b> ${esc(ch.prepared_by || ch.created_by_name || '')}${ch.prepared_nick ? ` <span class="muted">(${esc(ch.prepared_nick)})</span>` : ''}</div></div>
-    <table><thead><tr><th style="width:44px">SL</th><th class="n" style="width:110px">Quantity</th><th>Description</th><th class="n" style="width:110px">Cost</th><th style="width:150px">Source / Remarks</th></tr></thead>
-      <tbody>${lines}${'<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>'.repeat(pad)}</tbody></table>
+    <table><thead><tr><th style="width:44px">SL</th><th class="n" style="width:110px">Quantity</th><th>Description</th>${showCost ? '<th class="n" style="width:110px">Cost</th>' : ''}${showSrc ? '<th style="width:110px">Source</th>' : ''}</tr></thead>
+      <tbody>${lines}</tbody></table>
     ${ch.remarks ? `<div class="fine"><b>Remarks:</b> ${esc(ch.remarks)}</div>` : ''}
     <div class="sign"><div>Materials delivered by<br><span class="muted">${esc(ch.prepared_by || 'Name & Designation')}</span></div><div>Materials received<br><span class="muted">${esc(ch.receiver || 'Name & Designation')}</span></div></div>
     <div class="fine">${esc(c.challan_note || '')}</div></div>`;

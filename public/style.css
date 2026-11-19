@@ -327,7 +327,8 @@ tr.rowin{animation:rowIn .4s var(--ease) both}
 .doc .sum div{display:flex;justify-content:space-between;padding:5px 9px;border:1px solid #c9d2dc;border-top:0}
 .doc .sum div:first-child{border-top:1px solid #c9d2dc}
 .doc .sum .k{background:#172b43;color:#fff;font-weight:700}
-.doc .sign{display:flex;justify-content:space-between;margin-top:56px}
+.doc .sign{display:flex;justify-content:space-between;margin-top:40px;page-break-inside:avoid}
+.doc table tr{page-break-inside:avoid}
 .doc .sign div{border-top:1px solid #333;padding-top:4px;min-width:200px;text-align:center;font-size:11px}
 .doc .fine{font-size:10.5px;color:#444;margin-top:10px}
 .watermark{position:absolute;inset:0;display:grid;place-items:center;font-size:90px;font-weight:900;color:#d9475a22;transform:rotate(-20deg);pointer-events:none}

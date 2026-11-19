@@ -391,13 +391,17 @@ function printHTML(html, opts = {}) {
     m.close(); doPrint(html, { size, orient, margin });
   };
 }
-function doPrint(html, { size = 'A4', orient = 'portrait', margin = 10 } = {}) {
+function doPrint(html, opts = {}) {
+  const { size = 'A4', orient = 'portrait', margin = 10 } = opts;
   const [pw, ph] = PAPER[size] || PAPER.A4, thermal = !ph;
   const root = $('#print-root');
   const W = thermal ? pw : (orient === 'landscape' ? ph : pw), contentW = W - 2 * (thermal ? Math.min(margin, 3) : margin);
   const mm = thermal ? Math.min(margin, 3) : margin;
-  root.innerHTML = `<style id="pg-style">@page{size:${thermal ? `${pw}mm 300mm` : orient === 'landscape' ? `${ph}mm ${pw}mm` : `${pw}mm ${ph}mm`};margin:${mm}mm}
-    #print-root{width:${contentW}mm}
+  // bills, challans, receipts: page margin 0 so the browser prints NO header/footer (page title, date, web address); our own margin is padding.
+  // multi-page reports keep a real page margin so every page has space at the top.
+  const isDoc = !html.includes('rpt-print');
+  root.innerHTML = `<style id="pg-style">@page{size:${thermal ? `${pw}mm 300mm` : orient === 'landscape' ? `${ph}mm ${pw}mm` : `${pw}mm ${ph}mm`};margin:${isDoc ? 0 : mm}mm}
+    #print-root{width:${isDoc ? W : contentW}mm;${isDoc ? `padding:${mm}mm;box-sizing:border-box;` : ''}}
     ${thermal ? `#print-root .doc{font-size:${pw < 70 ? 9 : 10.5}px;padding:0!important}#print-root .doc *{max-width:100%}#print-root .doc-head{display:block!important}#print-root .doc-head>*{text-align:left!important;margin-bottom:4px}
       #print-root .doc h1{font-size:${pw < 70 ? 13 : 15}px}#print-root .doc-logo img,#print-root .doc-logo .mark{width:30px!important;height:30px!important}#print-root .meta{display:block!important}#print-root .meta>div{margin:1px 0}
       #print-root .doc{width:100%!important;min-width:0!important;max-width:none!important}
@@ -406,13 +410,22 @@ function doPrint(html, { size = 'A4', orient = 'portrait', margin = 10 } = {}) {
       #print-root th{text-transform:none!important}#print-root .doc-title{font-size:${pw < 70 ? 9 : 11}px!important;padding:2px 6px!important}#print-root .sign{display:block!important}#print-root .sign>div{margin-top:18px}#print-root .watermark{font-size:28px}
       #print-root .row{display:block!important}#print-root .sum{width:100%!important;margin-top:6px}` : ''}</style><div class="print-body">${html}</div>`;
   document.body.classList.add('printing');
+  if (!thermal && !opts.noFit) {   // a bill / challan a little taller than the page is shrunk onto one page; long reports still flow over pages
+    const H = (orient === 'landscape' ? pw : ph) - 2 * mm, body = $('.print-body', root);
+    root.style.display = 'block'; root.style.position = 'absolute'; root.style.left = '-9999px';
+    const hmm = $('.print-body', root).scrollHeight * 25.4 / 96;
+    if (hmm > H && hmm / H < 1.9 && !root.querySelector('.rpt-print')) { const z = Math.floor(H / hmm * 0.97 * 1000) / 1000; body.style.zoom = z; body.style.width = (contentW / z) + 'mm'; }
+    root.removeAttribute('style');
+  }
   if (thermal) {   // receipt rolls: make the page exactly as long as the content
     root.style.display = 'block'; root.style.position = 'absolute'; root.style.left = '-9999px';
-    const hmm = Math.ceil(root.scrollHeight * 25.4 / 96) + 2 * mm + 4;
+    const hmm = Math.ceil($('.print-body', root).scrollHeight * 25.4 / 96) + 2 * mm + 4;
     root.removeAttribute('style');
     $('#pg-style', root).textContent = $('#pg-style', root).textContent.replace(`${pw}mm 300mm`, `${pw}mm ${Math.max(60, hmm)}mm`);
   }
-  const done = () => { document.body.classList.remove('printing'); root.innerHTML = ''; };
+  const oldTitle = document.title, no = (html.match(/[A-Z]{2,5}-(?:INV|DC)-\d+|MR-\d+/) || [])[0];
+  document.title = [App.meta?.settings?.company?.name, no || (isDoc ? 'Document' : 'Report')].filter(Boolean).join(' - ');
+  const done = () => { document.body.classList.remove('printing'); root.innerHTML = ''; document.title = oldTitle; };
   if (IN_APP()) { window.__afterPrint = done; setTimeout(() => window.AndroidBridge.printPage(document.title || 'Document'), 150); return; }
   setTimeout(() => { window.print(); setTimeout(done, 300); }, 120);
 }
