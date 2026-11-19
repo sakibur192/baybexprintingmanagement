@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Baybex Printers Manager — Brochure</title>
+<link rel="icon" type="image/png" href="/brand/favicon.png">
+<style>
+@font-face{font-family:Inter;src:url(/fonts/inter-400.woff2) format('woff2');font-weight:400}
+@font-face{font-family:Inter;src:url(/fonts/inter-600.woff2) format('woff2');font-weight:600}
+@font-face{font-family:Inter;src:url(/fonts/inter-700.woff2) format('woff2');font-weight:700}
+@font-face{font-family:Inter;src:url(/fonts/inter-800.woff2) format('woff2');font-weight:800}
+@font-face{font-family:BN;src:url(/fonts/bn-400.woff2) format('woff2');font-weight:400;unicode-range:U+0980-09FF,U+200C-200D,U+25CC}
+@font-face{font-family:BN;src:url(/fonts/bn-600.woff2) format('woff2');font-weight:600;unicode-range:U+0980-09FF,U+200C-200D,U+25CC}
+@font-face{font-family:BN;src:url(/fonts/bn-700.woff2) format('woff2');font-weight:700;unicode-range:U+0980-09FF,U+200C-200D,U+25CC}
+@font-face{font-family:BN;src:url(/fonts/bn-800.woff2) format('woff2');font-weight:800;unicode-range:U+0980-09FF,U+200C-200D,U+25CC}
+:root{--navy:#16466e;--navy2:#0f2f4b;--teal:#13838f;--teal2:#16a3a0;--ink:#15212e;--ink2:#3b4b5d;--muted:#6f7f91;--line:#e3eaf1;--soft:#f3f7fb;--orange:#e08a2e;--purple:#7c4ddc;--green:#1d9b6c;--red:#d9475a}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:Inter,BN,system-ui,sans-serif;color:var(--ink);background:#c9d3dd;font-size:10.5pt;line-height:1.5}
+.bn{font-family:BN,Inter,sans-serif}
+@page{size:A4;margin:0}
+.page{width:210mm;height:297mm;margin:10mm auto;background:#fff;position:relative;overflow:hidden;box-shadow:0 10px 40px -12px #0005;page-break-after:always;break-after:page}
+.page:last-child{page-break-after:auto;break-after:auto}
+@media print{body{background:#fff}.page{margin:0;box-shadow:none}.toolbar{display:none!important}}
+.toolbar{position:sticky;top:0;z-index:9;display:flex;gap:10px;justify-content:center;padding:12px;background:#0f2f4bee;backdrop-filter:blur(8px)}
+.toolbar a,.toolbar button{font:600 13px Inter,sans-serif;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;text-decoration:none;color:#fff;background:var(--teal)}
+.toolbar .g{background:#ffffff22}
+.pad{padding:16mm 16mm 14mm}
+.kick{font-size:8.5pt;letter-spacing:.4px;font-weight:800;color:var(--teal);text-transform:uppercase}
+h1,h2,h3{line-height:1.15;letter-spacing:-.4px}
+h2{font-size:24pt;margin:3mm 0 2mm;color:var(--navy)}
+h3{font-size:12.5pt;margin-bottom:1.2mm}
+.lead{font-size:11.5pt;color:var(--ink2);max-width:150mm}
+.muted{color:var(--muted)}
+.foot{position:absolute;left:16mm;right:16mm;bottom:8mm;display:flex;justify-content:space-between;align-items:center;font-size:8pt;color:var(--muted);border-top:1px solid var(--line);padding-top:3mm}
+.foot img{height:12px}
+.grid{display:grid;gap:5mm}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+.card{border:1px solid var(--line);border-radius:4mm;padding:4.5mm;background:#fff}
+.card.soft{background:var(--soft);border-color:#e7eef5}
+.ic{width:10mm;height:10mm;border-radius:3mm;display:grid;place-items:center;color:#fff;font-size:13pt;font-weight:800;margin-bottom:2.5mm}
+.shot{border-radius:3.5mm;overflow:hidden;box-shadow:0 8mm 16mm -8mm #0f2f4b66,0 0 0 1px #0f2f4b14;background:#fff}
+.shot img{display:block;width:100%}
+.frame{border-radius:4mm;padding:2.2mm;background:linear-gradient(135deg,#ffffff,#e7eef6);box-shadow:0 10mm 22mm -10mm #0f2f4b88}
+.frame .bar{display:flex;gap:1.4mm;padding:0 0 1.8mm 1mm}.frame .bar i{width:2.2mm;height:2.2mm;border-radius:50%;background:#d9475a}.frame .bar i:nth-child(2){background:#e0b12e}.frame .bar i:nth-child(3){background:#1d9b6c}
+.frame img{display:block;width:100%;border-radius:2mm}
+ul.tick{list-style:none;display:grid;gap:1.8mm}
+ul.tick li{padding-left:6mm;position:relative}
+ul.tick li::before{content:"";position:absolute;left:0;top:1.6mm;width:3.4mm;height:3.4mm;border-radius:50%;background:var(--teal) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E") center/70% no-repeat}
+.pill{display:inline-flex;align-items:center;gap:2mm;padding:1.6mm 3.6mm;border-radius:20mm;font-weight:700;font-size:9pt}
+.num{font-weight:800;font-size:20pt;color:var(--navy);letter-spacing:-.6px}
+.tag{display:inline-block;padding:.6mm 2.4mm;border-radius:10mm;font-size:7.5pt;font-weight:800;letter-spacing:.4px}
+.qr{background:#fff;border-radius:3mm;padding:2mm;display:inline-block}
+.qr img{display:block;width:30mm;height:30mm}
+.cmyk{display:flex;gap:1.6mm}.cmyk i{width:3.4mm;height:3.4mm;border-radius:50%;display:block}
+
+/* cover */
+.cover{background:radial-gradient(130mm 90mm at 100% 0%,#1fb0ae55,transparent),radial-gradient(120mm 120mm at 0% 100%,#2a7fd040,transparent),linear-gradient(160deg,#0f2f4b 0%,#16466e 55%,#13838f 100%);color:#fff}
+.cover .pad{height:100%;display:flex;flex-direction:column}
+.cover h1{font-size:34pt;margin:9mm 0 3mm;letter-spacing:-1px}
+.cover .bnh{font-size:19pt;font-weight:700;line-height:1.35;color:#e5f3f8;max-width:160mm}
+.cover p{color:#c7dbe8;font-size:11.5pt;max-width:150mm;margin-top:3mm}
+.cover .hero{position:absolute;right:-28mm;bottom:40mm;width:178mm;transform:perspective(600mm) rotateY(-14deg) rotateX(4deg);transform-origin:right center}
+.cover .phone{position:absolute;left:18mm;bottom:30mm;width:44mm;border-radius:6mm;padding:1.6mm;background:#0b2033;box-shadow:0 14mm 26mm -10mm #000a}
+.cover .phone img{display:block;width:100%;border-radius:4.6mm}
+.badges{display:flex;gap:3mm;flex-wrap:wrap;margin-top:6mm}
+.badges .pill{background:#ffffff1c;border:1px solid #ffffff38;color:#fff}
+
+/* split problem/solution */
+.pain{border-left:1.2mm solid var(--red);background:#fdf2f3;border-radius:0 3mm 3mm 0;padding:3mm 4mm}
+.gain{border-left:1.2mm solid var(--green);background:#eef9f4;border-radius:0 3mm 3mm 0;padding:3mm 4mm}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:4mm;background:linear-gradient(135deg,var(--navy),var(--teal));color:#fff;border-radius:4mm;padding:6mm}
+.strip b{display:block;font-size:20pt;letter-spacing:-.5px}.strip span{font-size:8.5pt;color:#d1e7ef}
+
+.formula{display:flex;align-items:center;gap:3mm;flex-wrap:wrap;font-weight:700}
+.formula .box{border-radius:3mm;padding:3mm 4mm;background:var(--soft);border:1px solid var(--line);text-align:center;min-width:28mm}
+.formula .box small{display:block;font-weight:600;color:var(--muted);font-size:7.5pt}
+.formula .box b{font-size:15pt;color:var(--navy)}
+
+/* pricing */
+.plan{border:.5mm solid var(--line);border-radius:4.5mm;padding:5mm 4.5mm;position:relative;background:#fff}
+.plan.hot{border-color:var(--teal);box-shadow:0 10mm 20mm -12mm #13838f}
+.plan .price{font-size:24pt;font-weight:800;letter-spacing:-.8px;color:var(--navy);margin:2mm 0 .5mm}
+.plan .badge{position:absolute;top:-3mm;right:4mm;background:var(--orange);color:#fff}
+.step{display:flex;gap:3.5mm;align-items:flex-start}
+.step .n{flex:none;width:9mm;height:9mm;border-radius:50%;background:var(--teal);color:#fff;display:grid;place-items:center;font-weight:800}
+.back{background:linear-gradient(160deg,#0f2f4b,#16466e 60%,#13838f);color:#fff}
+.back .pad{height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center}
+table.t{width:100%;border-collapse:collapse;font-size:9pt}
+table.t th,table.t td{border-bottom:1px solid var(--line);padding:2mm 2.5mm;text-align:left}
+table.t th{background:var(--soft);font-size:7.5pt;letter-spacing:.6px;color:var(--muted);text-transform:uppercase}
+table.t td.c,table.t th.c{text-align:center}
+.yes{color:var(--green);font-weight:800}.no{color:#c3ccd6}
+</style>
+</head>
+<body>
+<div class="toolbar"><a id="dl" href="/api/public/brochure.pdf">⬇ Download PDF</a><button class="g" onclick="print()">🖨 Print / Save as PDF</button><a class="g" href="/">Website</a></div>
+
+<!-- 1 · COVER -->
+<section class="page cover"><div class="pad">
+  <img src="/brand/wordmark-white.png" alt="Baybex" style="height:13mm;width:auto;align-self:flex-start">
+  <div class="kick" style="color:#9fe7ef;margin-top:3mm">BAYBEX DIGITAL · PRINTING BUSINESS SOFTWARE</div>
+  <h1>Baybex Printers Manager</h1>
+  <div class="bnh bn">আপনার CTP প্লেট ও PVC প্রিন্ট ব্যবসার স্টক, বিক্রি, চালান আর কাস্টমারের বাকি — সব এক সফটওয়্যারে।</div>
+  <p>Plate stock in pieces, PVC rolls in linear feet, billing in square feet, one customer ledger for both divisions — on computer and Android phone.</p>
+  <div class="badges"><span class="pill bn" id="b-trial">৭ দিন ফ্রি ট্রায়াল</span><span class="pill bn">📱 Android অ্যাপ</span><span class="pill bn">🇧🇩 বাংলাদেশের প্রেসের জন্য তৈরি</span></div>
+  <div class="frame hero"><div class="bar"><i></i><i></i><i></i></div><img src="/brochure-img/dashboard.jpg" alt=""></div>
+  <div class="phone"><img src="/brochure-img/mobile.jpg" alt=""></div>
+  <div style="margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;position:relative;z-index:2">
+    <div></div>
+    <div style="text-align:right"><div class="cmyk" style="justify-content:flex-end;margin-bottom:2mm"><i style="background:#00aeef"></i><i style="background:#ec008c"></i><i style="background:#fff200"></i><i style="background:#231f20;border:1px solid #fff6"></i></div>
+      <div style="font-weight:700;font-size:12pt" data-k="site">baybex.com</div><div style="color:#c7dbe8" data-k="phone"></div></div>
+  </div>
+</div></section>
+
+<!-- 2 · PROBLEM / SOLUTION -->
+<section class="page"><div class="pad">
+  <div class="kick">কেন দরকার · WHY</div>
+  <h2 class="bn">খাতার হিসাব আর মিলবে না — এই চিন্তা শেষ</h2>
+  <p class="lead bn">বেশিরভাগ প্রেসে আজও স্টক রেজিস্টার, বিল বই আর চালান বই আলাদা আলাদা খাতায় চলে। মাস শেষে হিসাব মেলাতে দিন চলে যায়, আর বাকির টাকা হারিয়ে যায়।</p>
+  <div class="grid g2" style="margin-top:7mm">
+    <div class="grid" style="gap:3mm"><h3 class="bn" style="color:var(--red)">এখনকার সমস্যা</h3>
+      <div class="pain bn">📕 স্টক রেজিস্টারের পাতা হারায়, প্লেটের হিসাব মেলে না</div>
+      <div class="pain bn">📐 PVC-তে স্কয়ার ফিটে বিল, অথচ রোল খরচ হয় রানিং ফিটে — গোলমাল লাগে</div>
+      <div class="pain bn">💸 কোন কাস্টমারের কত বাকি, কে কবে দিল — মনে রাখা কঠিন</div>
+      <div class="pain bn">🧾 নিজের কাজে প্লেট খরচ হলে বিক্রির সাথে মিশে যায়</div>
+      <div class="pain bn">👤 কোন স্টাফ কোন এন্ট্রি দিল, পরে আর জানা যায় না</div>
+      <div class="pain bn">📊 দৈনিক / মাসিক রিপোর্ট বানাতে ঘণ্টার পর ঘণ্টা</div></div>
+    <div class="grid" style="gap:3mm"><h3 class="bn" style="color:var(--green)">Baybex Printers Manager দিয়ে</h3>
+      <div class="gain bn">✅ প্রতিটি প্লেট সাইজের স্টক অটো হিসাব — Opening + Production − Sales − Own Use</div>
+      <div class="gain bn">✅ বিল স্কয়ার ফিটে, স্টক কাটে রানিং ফিটে — সফটওয়্যার নিজেই হিসাব করে</div>
+      <div class="gain bn">✅ CTP + PVC দুই বিভাগের এক লেজার, আংশিক পেমেন্ট ও অ্যাডভান্স সহ</div>
+      <div class="gain bn">✅ Own Use আলাদা — কারণ লিখতেই হবে, বিক্রিতে যোগ হয় না</div>
+      <div class="gain bn">✅ প্রতিটি এন্ট্রিতে স্টাফের নাম, পদ ও সময় অটো সেভ</div>
+      <div class="gain bn">✅ এক ক্লিকে দৈনিক, মাসিক, বার্ষিক রিপোর্ট — Excel ও PDF</div></div>
+  </div>
+  <div class="strip" style="margin-top:9mm">
+    <div><b>2</b><span class="bn">বিভাগ এক সফটওয়্যারে (CTP + PVC)</span></div>
+    <div><b>6</b><span class="bn">স্টাফ রোল — আলাদা লগইন</span></div>
+    <div><b>30+</b><span class="bn">রিপোর্ট ও রেজিস্টার</span></div>
+    <div><b>24/7</b><span class="bn">কম্পিউটার ও মোবাইলে চালু</span></div>
+  </div>
+  <div class="card soft" style="margin-top:7mm;display:flex;gap:5mm;align-items:center">
+    <div style="font-size:24pt">🔒</div><div class="bn"><b>আপনার ডাটা শুধু আপনার।</b> প্রতিটি ব্যবসার জন্য আলাদা ডাটাবেস, এক ক্লিকে ব্যাকআপ ডাউনলোড। কোনো পেমেন্ট বাকি পড়লেও আপনার ডাটা মুছে যায় না।</div></div>
+</div><div class="foot"><img src="/brand/logo.png" alt=""><span>Baybex Printers Manager</span><span>02</span></div></section>
+
+<!-- 3 · CTP -->
+<section class="page"><div class="pad">
+  <div class="kick">CTP প্লেট বিভাগ</div>
+  <h2 class="bn">প্লেটের প্রতিটি পিস — হিসাবে</h2>
+  <p class="lead bn">Mini, Short Demy, Demy, Double Demy — বা আপনার নিজের যেকোনো সাইজ। প্রোডাকশন, ক্রয়, বিক্রি আর নিজস্ব ব্যবহার আলাদা আলাদা দেখায়।</p>
+  <div class="shot" style="margin-top:6mm"><img src="/brochure-img/ctp-stock.jpg" alt=""></div>
+  <div class="grid g3" style="margin-top:7mm">
+    <div class="card"><div class="ic" style="background:var(--navy)">▣</div><h3 class="bn">স্টক রেজিস্টার</h3><div class="bn muted">আপনার খাতার মতোই কলাম — তারিখ, B.F., রিসিট, ইস্যু, ব্যালেন্স। প্রিন্টও করা যায়।</div></div>
+    <div class="card"><div class="ic" style="background:var(--purple)">★</div><h3 class="bn">Own Use</h3><div class="bn muted">ক্যালেন্ডার, স্যাম্পল বা টেস্ট প্লেট — কারণসহ লিখুন। স্টক কমে, বিক্রি না।</div></div>
+    <div class="card"><div class="ic" style="background:var(--green)">৳</div><h3 class="bn">রেট হিস্টোরি</h3><div class="bn muted">রেট বদলালেও পুরোনো বিল বদলায় না। কে কবে রেট বদলাল — সব রেকর্ডে।</div></div>
+  </div>
+  <div class="grid g2" style="margin-top:6mm;align-items:center">
+    <div class="shot"><img src="/brochure-img/invoice.jpg" alt=""></div>
+    <div><h3 class="bn">আপনার বিল বইয়ের মতোই ইনভয়েস</h3>
+      <ul class="tick bn" style="margin-top:2mm"><li>আলাদা নম্বর সিরিজ — CTP-INV ও PVC-INV (খাতার নম্বর থেকে চালু করা যায়)</li><li>নিজের লোগো, ঠিকানা, ফোন ও নিচের নোট</li><li>Draft বিল স্টক কাটে না, Confirm করলেই কাটে</li><li>এক ক্লিকে প্রিন্ট বা PDF</li><li>ডেলিভারি চালান — আংশিক ডেলিভারি, দ্বিতীয়বার স্টক কাটে না</li></ul></div>
+  </div>
+</div><div class="foot"><img src="/brand/logo.png" alt=""><span>CTP Division</span><span>03</span></div></section>
+
+<!-- 4 · PVC -->
+<section class="page"><div class="pad">
+  <div class="kick">PVC / ডিজিটাল মিডিয়া বিভাগ</div>
+  <h2 class="bn">বিল স্কয়ার ফিটে, স্টক রানিং ফিটে</h2>
+  <p class="lead bn">PVC Banner, Black Back, Vinyl, Pana, Reflective, Cloth — প্রতিটি মিডিয়া ও রোলের চওড়া (৩ থেকে ১০ ফিট) আলাদা স্টক। আর্টওয়ার্ক রোলে ধরে কিনা সফটওয়্যার নিজেই চেক করে।</p>
+  <div class="card soft" style="margin-top:6mm"><div class="bn" style="font-weight:700;margin-bottom:3mm">উদাহরণ: ৪ ফিট রোলে ৪ × ১০ ফিটের ৩টি ব্যানার</div>
+    <div class="formula"><div class="box"><small>Width</small><b>4 ft</b></div>×<div class="box"><small>Length</small><b>10 ft</b></div>×<div class="box"><small>Qty</small><b>3</b></div>=
+      <div class="box" style="background:#e8f2fc;border-color:#bcd8f3"><small class="bn">কাস্টমারের বিল</small><b>120 sq ft</b></div>
+      <div class="box" style="background:#e6f6f2;border-color:#b5e3d6"><small class="bn">রোল থেকে কাটে</small><b>30 ft</b></div></div>
+    <div class="bn muted" style="margin-top:3mm">Normal / Rotate বেছে নিন — না ধরলে সতর্ক করে। ওয়েস্টেজ আলাদা লিখুন (কাটিং, প্রিন্টিং এরর, মেশিন এরর…) — স্টক কমে, বিলে যোগ হয় না।</div></div>
+  <div class="frame" style="margin-top:6mm"><div class="bar"><i></i><i></i><i></i></div><img src="/brochure-img/pvc-print.jpg" alt="" style="height:92mm;object-fit:cover;object-position:top"></div>
+  <div class="grid g4" style="margin-top:6mm;gap:3.5mm">
+    <div class="card"><h3 class="bn">লাইভ রোল প্রিভিউ</h3><div class="bn muted">কোন পিস রোলের কোথায় বসবে — স্ক্রিনেই দেখা যায়।</div></div>
+    <div class="card"><h3 class="bn">লো-স্টক এলার্ট</h3><div class="bn muted">২০ ফিটের নিচে নামলেই ড্যাশবোর্ডে সতর্কতা।</div></div>
+    <div class="card"><h3 class="bn">পিস আইটেম</h3><div class="bn muted">PVC ID কার্ড ইত্যাদি পিস হিসেবে বিক্রি।</div></div>
+    <div class="card"><h3 class="bn">কালি স্টক</h3><div class="bn muted">Cyan, Magenta, Yellow, Black — বোতল ও লিটার।</div></div>
+  </div>
+</div><div class="foot"><img src="/brand/logo.png" alt=""><span>PVC / Media Division</span><span>04</span></div></section>
+
+<!-- 5 · ACCOUNTS & REPORTS -->
+<section class="page"><div class="pad">
+  <div class="kick">হিসাব, বাকি ও রিপোর্ট</div>
+  <h2 class="bn">কার কাছে কত পাবেন — এক নজরে</h2>
+  <p class="lead bn">একজন কাস্টমার, এক লেজার — CTP ও PVC দুটোরই বিল, পেমেন্ট আর ব্যালেন্স একসাথে। আংশিক পেমেন্ট, অ্যাডভান্স, bKash / Nagad / Cash / Bank সব সাপোর্ট।</p>
+  <div class="shot" style="margin-top:6mm"><img src="/brochure-img/ledger.jpg" alt=""></div>
+  <div class="grid g2" style="margin-top:7mm;align-items:start">
+    <div><h3 class="bn">রিপোর্ট সেন্টার</h3>
+      <ul class="tick bn" style="margin-top:2mm"><li>দৈনিক, মাসিক, বার্ষিক ও যেকোনো তারিখের রিপোর্ট</li><li>প্লেট সাইজ অনুযায়ী বিক্রি · কাস্টমার অনুযায়ী স্কয়ার ফিট</li><li>Own Use রেজিস্টার — কারণসহ</li><li>ওয়েস্টেজ, স্টক মুভমেন্ট, কালেকশন, খরচ</li><li>স্টাফ অনুযায়ী বিক্রি, বাকি ও কাজের লগ</li><li>Excel ডাউনলোড ও PDF প্রিন্ট</li></ul></div>
+    <div class="shot"><img src="/brochure-img/reports.jpg" alt=""></div>
+  </div>
+  <div class="card soft bn" style="margin-top:6mm"><b>নিয়ম পরিষ্কার:</b> শুধু Confirm করা বিলই বিক্রি · Cancel করা বিল বাদ, স্টক ফেরত · প্লেট আর স্কয়ার ফিট কখনো একসাথে যোগ হয় না · টাকার হিসাব শুধু টাকায়।</div>
+</div><div class="foot"><img src="/brand/logo.png" alt=""><span>Accounts & Reports</span><span>05</span></div></section>
+
+<!-- 6 · STAFF + ANDROID -->
+<section class="page"><div class="pad">
+  <div class="kick">স্টাফ, নিরাপত্তা ও মোবাইল অ্যাপ</div>
+  <h2 class="bn">প্রত্যেক স্টাফের আলাদা লগইন</h2>
+  <p class="lead bn">কে কী দেখতে বা করতে পারবে — আপনি ঠিক করবেন। প্রতিটি বিল, পেমেন্ট আর স্টক এন্ট্রিতে স্টাফের নাম অটো বসে যায়, পরে বদলানো যায় না।</p>
+  <table class="t bn" style="margin-top:5mm"><thead><tr><th>কাজ</th><th class="c">Admin</th><th class="c">Manager</th><th class="c">Accountant</th><th class="c">CTP Operator</th><th class="c">PVC Operator</th><th class="c">Designer</th></tr></thead><tbody>
+    <tr><td>CTP বিল ও প্রোডাকশন</td><td class="c yes">✓</td><td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c no">—</td><td class="c yes">✓</td></tr>
+    <tr><td>PVC প্রিন্ট এন্ট্রি ও বিল</td><td class="c yes">✓</td><td class="c no">—</td><td class="c yes">✓</td><td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+    <tr><td>পেমেন্ট নেওয়া ও খরচ</td><td class="c yes">✓</td><td class="c no">—</td><td class="c yes">✓</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>রিপোর্ট দেখা</td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+    <tr><td>বিল বাতিল, স্টক এডজাস্ট, সেটিংস</td><td class="c yes">✓</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr></tbody></table>
+  <div class="muted bn" style="font-size:8.5pt;margin-top:1.5mm">* প্রতিটি রোলের পারমিশন আপনি নিজে বদলাতে পারবেন, নতুন রোলও বানাতে পারবেন।</div>
+  <div class="grid" style="grid-template-columns:1.3fr 1fr;margin-top:9mm;align-items:center;gap:6mm">
+    <div><div class="kick" style="color:var(--teal)">ANDROID APP</div><h2 class="bn" style="font-size:20pt">পুরো দোকান আপনার পকেটে</h2>
+      <ul class="tick bn" style="margin-top:3mm"><li>মোবাইল থেকেই বিল, স্টক, পেমেন্ট ও রিপোর্ট</li><li>বিল ও চালান মোবাইল থেকে প্রিন্ট / PDF</li><li>Excel রিপোর্ট সরাসরি ফোনে ডাউনলোড</li><li>নতুন ভার্সন এলে অ্যাপ নিজেই আপডেটের জন্য জানায়</li></ul>
+      <div style="display:flex;gap:4mm;align-items:center;margin-top:5mm"><div class="qr" style="border:1px solid var(--line)"><img data-qr="apk" alt="QR"></div><div class="bn"><b>স্ক্যান করে অ্যাপ ডাউনলোড করুন</b><div class="muted" data-k="apk-url"></div></div></div></div>
+    <div style="display:flex;gap:3mm;justify-content:center;padding-right:4mm">
+      <div style="width:31mm;border-radius:5mm;padding:1.4mm;background:#0b2033;box-shadow:0 12mm 24mm -12mm #000a;transform:rotate(-4deg)"><img src="/brochure-img/mobile.jpg" style="width:100%;display:block;border-radius:4.6mm"></div>
+      <div style="width:31mm;border-radius:5mm;padding:1.4mm;background:#0b2033;box-shadow:0 12mm 24mm -12mm #000a;transform:rotate(4deg) translateY(10mm)"><img src="/brochure-img/mobile-invoice.jpg" style="width:100%;display:block;border-radius:4.6mm"></div></div>
+  </div>
+</div><div class="foot"><img src="/brand/logo.png" alt=""><span>Staff & Android App</span><span>06</span></div></section>
+
+<!-- 7 · WHAT YOU GET + HOW TO START -->
+<section class="page"><div class="pad">
+  <div class="kick">এক প্যাকেজ · ONE PACKAGE</div>
+  <h2 class="bn">এক প্যাকেজে সব ফিচার</h2>
+  <p class="lead bn" id="p-lead">প্রথমে ৭ দিন সম্পূর্ণ ফ্রি ব্যবহার করুন — কোনো পেমেন্ট লাগবে না। সব ফিচার, কোনো লুকানো সীমা নেই।</p>
+  <div class="grid g3" style="margin-top:5mm;gap:3.5mm">
+    <div class="card"><div class="ic" style="background:var(--navy)">∞</div><h3 class="bn">আনলিমিটেড</h3><div class="bn muted">বিল, চালান, কাস্টমার আর স্টক এন্ট্রি — যত খুশি।</div></div>
+    <div class="card"><div class="ic" style="background:var(--teal)">👥</div><h3 class="bn">সব স্টাফের লগইন</h3><div class="bn muted">ম্যানেজার, অ্যাকাউন্ট্যান্ট, অপারেটর, ডিজাইনার — আলাদা আলাদা।</div></div>
+    <div class="card"><div class="ic" style="background:var(--green)">📱</div><h3 class="bn">Android অ্যাপ</h3><div class="bn muted">কোনো বাড়তি খরচ ছাড়াই মোবাইল অ্যাপ।</div></div>
+    <div class="card"><div class="ic" style="background:var(--purple)">📊</div><h3 class="bn">সব রিপোর্ট</h3><div class="bn muted">দৈনিক, মাসিক, বার্ষিক — Excel ও PDF।</div></div>
+    <div class="card"><div class="ic" style="background:var(--orange)">🔒</div><h3 class="bn">ব্যাকআপ ও নিরাপত্তা</h3><div class="bn muted">আলাদা ডাটাবেস, এক ক্লিকে ব্যাকআপ।</div></div>
+    <div class="card"><div class="ic" style="background:var(--red)">🛠</div><h3 class="bn">ফ্রি আপডেট ও সাপোর্ট</h3><div class="bn muted">নতুন ফিচার আসলে অটো পাবেন, ফোনে সাহায্য।</div></div>
+  </div>
+  <div class="card soft bn" style="margin-top:4.5mm;display:flex;gap:4mm;align-items:center;padding:3.5mm 4.5mm"><div style="font-size:18pt">📞</div><div>প্যাকেজ ও অফার সম্পর্কে জানতে কল করুন <b data-k="phone"></b> অথবা ভিজিট করুন <b data-k="host"></b></div></div>
+  <h3 class="bn" style="margin-top:7mm;font-size:15pt;color:var(--navy)">মাত্র ৩ ধাপে শুরু করুন</h3>
+  <div class="grid" style="grid-template-columns:1fr 1fr 1fr auto;gap:5mm;margin-top:4mm;align-items:start">
+    <div class="step"><div class="n">১</div><div class="bn"><b>ফ্রি অ্যাকাউন্ট খুলুন</b><div class="muted">ওয়েবসাইটে নাম, মোবাইল আর একটি Business ID দিন — ২ মিনিট।</div></div></div>
+    <div class="step"><div class="n">২</div><div class="bn"><b>দোকান সাজান</b><div class="muted">লোগো, প্লেট সাইজ, রেট, মিডিয়া, ওপেনিং স্টক ও কাস্টমার।</div></div></div>
+    <div class="step"><div class="n">৩</div><div class="bn"><b>স্টাফ যোগ করুন</b><div class="muted">প্রত্যেকের আলাদা লগইন — আজ থেকেই কাজ শুরু।</div></div></div>
+    <div style="text-align:center"><div class="qr" style="border:1px solid var(--line)"><img data-qr="signup" alt="QR"></div><div class="bn" style="font-size:8pt;font-weight:700;color:var(--navy)">স্ক্যান করে ফ্রি ট্রায়াল</div></div>
+  </div>
+  <div class="grid g2" style="margin-top:6mm;gap:3mm">
+    <div class="card bn"><b>ইন্টারনেট না থাকলে?</b><div class="muted">ডাটা সার্ভারে নিরাপদ থাকে; নেট ফিরলেই আবার কাজ করুন।</div></div>
+    <div class="card bn"><b>কম্পিউটার জানা লাগবে?</b><div class="muted">না। বাংলা-ইংরেজি সহজ স্ক্রিন, আমরা সেটআপে সাহায্য করি।</div></div>
+    <div class="card bn"><b>পুরোনো খাতার নম্বর থেকে শুরু?</b><div class="muted">হ্যাঁ — বিল, চালান ও রিসিট নম্বর যেকোনো সংখ্যা থেকে।</div></div>
+    <div class="card bn"><b>সাবস্ক্রিপশন শেষ হলে ডাটা?</b><div class="muted">মুছে যায় না। রিনিউ করলেই সব আগের মতো।</div></div>
+  </div>
+</div><div class="foot"><img src="/brand/logo.png" alt=""><span>What you get</span><span>07</span></div></section>
+
+<!-- 8 · BACK COVER -->
+<section class="page back"><div class="pad">
+  <img src="/brand/wordmark-white.png" alt="Baybex" style="height:18mm">
+  <div class="kick" style="color:#9fe7ef;margin-top:4mm">BAYBEX DIGITAL</div>
+  <h2 style="color:#fff;font-size:28pt;margin-top:10mm" class="bn">আজই ফ্রি ট্রায়াল শুরু করুন</h2>
+  <p class="bn" style="color:#cfe2ee;font-size:12pt;max-width:140mm;margin-top:3mm" id="bk-lead">৭ দিন সব ফিচার একদম ফ্রি — কোনো পেমেন্ট ছাড়াই শুরু করুন।</p>
+  <div style="display:flex;gap:12mm;margin-top:12mm;align-items:flex-start;justify-content:center">
+    <div><div class="qr"><img data-qr="site" alt="QR" style="width:38mm;height:38mm"></div><div class="bn" style="margin-top:2mm;font-weight:700">ওয়েবসাইট / সাইন আপ</div></div>
+    <div><div class="qr"><img data-qr="apk" alt="QR" style="width:38mm;height:38mm"></div><div class="bn" style="margin-top:2mm;font-weight:700">Android অ্যাপ</div></div>
+  </div>
+  <div style="margin-top:14mm;display:grid;gap:2.5mm;font-size:12.5pt">
+    <div>🌐 <b data-k="base">—</b></div><div>📞 <b data-k="phone">—</b></div><div>✉ <b data-k="email">—</b></div><div style="color:#cfe2ee">🔗 <span data-k="site">—</span></div>
+  </div>
+  <div style="margin-top:16mm;display:flex;gap:2mm" class="cmyk"><i style="background:#00aeef"></i><i style="background:#ec008c"></i><i style="background:#fff200"></i><i style="background:#231f20;border:1px solid #fff6"></i></div>
+  <div class="bn" style="color:#9fbfd2;font-size:9pt;margin-top:4mm">Baybex Printers Manager — CTP প্লেট ও PVC প্রিন্ট ব্যবসার জন্য বাংলাদেশে তৈরি সফটওয়্যার</div>
+</div></section>
+
+<script>
+(async () => {
+  const bn = s => String(s).replace(/\d/g, d => '০১২৩৪৫৬৭৮৯'[d]);
+  const set = (k, v) => document.querySelectorAll(`[data-k="${k}"]`).forEach(e => (e.textContent = v));
+  try {
+    const c = await (await fetch('/api/public/config')).json(); const b = c.brand || {};
+    const base = c.base_url, host = base.replace(/^https?:\/\//, '');
+    set('base', host + '  ·  ' + host + '/app'); set('phone', b.phone || ''); set('email', b.email || ''); set('site', b.website || '');
+    set('apk-url', host + '/api/public/app/download'); set('apk-ver', c.app ? `Version ${c.app.version_name}` : '');
+    document.querySelectorAll('[data-qr]').forEach(i => (i.src = '/api/public/qr.svg?for=' + i.dataset.qr));
+    const td = bn(c.trial_days);
+    set('host', host);
+    document.getElementById('b-trial').textContent = `${td} দিন ফ্রি ট্রায়াল`;
+    document.getElementById('p-lead').textContent = `প্রথমে ${td} দিন সম্পূর্ণ ফ্রি ব্যবহার করুন — কোনো পেমেন্ট লাগবে না। সব ফিচার, কোনো লুকানো সীমা নেই।`;
+    document.getElementById('bk-lead').textContent = `${td} দিন সব ফিচার একদম ফ্রি — কোনো পেমেন্ট ছাড়াই শুরু করুন।`;
+  } catch (e) { console.error(e); }
+  await document.fonts.ready;
+  const imgs = [...document.images]; await Promise.all(imgs.map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; })));
+  document.body.dataset.ready = '1';
+})();
+</script>
+</body>
+</html>

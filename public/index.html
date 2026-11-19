@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Baybex Printers Manager — CTP & PVC print business software</title>
+<meta name="description" content="Stock, sales, invoices, challans, customer dues and reports for CTP plate and PVC/digital print businesses in Bangladesh. 7-day free trial.">
+<link rel="icon" type="image/png" href="/brand/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<style>
+body{background:#fff}
+.wrap{max-width:1180px;margin:0 auto;padding:0 22px}
+.nav-top{position:sticky;top:0;z-index:20;background:#ffffffd9;backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.nav-top .wrap{display:flex;align-items:center;gap:16px;height:66px}
+.nav-top a.l{color:var(--ink2);font-weight:600;font-size:13px}
+.hero{position:relative;overflow:hidden;background:radial-gradient(1200px 500px at 80% -10%,#2a7fd033,transparent),radial-gradient(800px 400px at 0% 10%,#13a38922,transparent),var(--navy);color:#fff;padding:90px 0 110px}
+.hero h1{font-size:clamp(34px,5vw,58px);line-height:1.05;letter-spacing:-1.5px;margin:14px 0;max-width:720px}
+.hero p{color:#b6c7d8;font-size:17px;max-width:600px}
+.hero .bn{font-size:20px;color:#d6e4f2;margin-top:6px}
+.pill2{display:inline-flex;gap:8px;align-items:center;background:#ffffff14;border:1px solid #ffffff26;padding:6px 12px;border-radius:30px;font-size:12px}
+.hero .plates{position:absolute;right:-40px;top:60px;width:520px;height:460px;pointer-events:none;opacity:.9}
+section{padding:80px 0}
+.sec-h{text-align:center;max-width:680px;margin:0 auto 40px}.sec-h h2{font-size:34px;letter-spacing:-.8px;margin:6px 0}.sec-h p{color:var(--muted)}
+.kick{font-size:11px;font-weight:800;letter-spacing:2px;color:var(--blue)}
+.feat{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.fc{padding:22px;border:1px solid var(--line);border-radius:18px;background:#fff;transition:transform .35s var(--spring),box-shadow .3s}
+.fc:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
+.fc .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:#fff;margin-bottom:12px}.fc .ic svg{width:22px}
+.fc h3{margin:0 0 6px;font-size:16px}.fc p{margin:0;color:var(--muted);font-size:13.5px}
+.prices{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.pc{position:relative;padding:26px 22px;border:2px solid var(--line);border-radius:20px;background:#fff;display:flex;flex-direction:column;gap:6px}
+.pc.hot{border-color:var(--blue);box-shadow:0 24px 50px -24px var(--blue)}
+.pc .amt{font-size:38px;font-weight:800;letter-spacing:-1px}
+.pc ul{padding:0;margin:12px 0 18px;list-style:none;display:grid;gap:7px;font-size:13px;color:var(--ink2)}.pc li::before{content:"✓ ";color:var(--ok);font-weight:800}
+.pc .btn{margin-top:auto}
+.signup{display:grid;grid-template-columns:1fr 1.1fr;gap:34px;align-items:start}
+.card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:28px;box-shadow:var(--shadow)}
+.foot{background:var(--navy);color:#9fb5cb;padding:40px 0;font-size:13px}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease),transform .7s var(--ease)}.reveal.in{opacity:1;transform:none}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;counter-reset:s}
+.step{padding:20px;border-radius:16px;background:var(--card2);border:1px solid var(--line)}.step::before{counter-increment:s;content:counter(s);display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;font-weight:800;margin-bottom:10px}
+@media(max-width:900px){.feat,.prices,.steps{grid-template-columns:1fr 1fr}.signup{grid-template-columns:1fr}.hero .plates{display:none}}
+@media(max-width:560px){.feat,.prices,.steps{grid-template-columns:1fr}.nav-top a.l{display:none}}
+</style>
+</head>
+<body>
+<div class="loader-line" id="loader"></div>
+<div id="toasts"></div><div class="tip" id="tip"></div>
+<header class="nav-top"><div class="wrap"><div class="brand" style="padding:0;color:var(--ink)"><img src="/brand/mark.png" alt="Baybex" style="height:40px"><div><strong id="b-product">Baybex Printers Manager</strong><small style="color:var(--muted)" id="b-company">BY BAYBEX DIGITAL</small></div></div>
+  <div class="grow" style="flex:1"></div><a class="l" href="#features">Features</a><a class="l" href="#pricing">Pricing</a><a class="l" href="#android">Android app</a><a class="l" href="/brochure" target="_blank">Brochure</a><a class="btn ghost" href="/app">Log in</a><a class="btn" href="#signup">Start free trial</a></div></header>
+
+<div class="hero"><div class="wrap" style="position:relative">
+  <div class="plates"><div class="plate"><i></i></div><div class="plate"><i></i></div><div class="plate"><i></i></div></div>
+  <img src="/brand/wordmark-white.png" alt="Baybex" style="height:34px;display:block;margin-bottom:22px;animation:rise .7s var(--ease) both">
+  <span class="pill2"><span class="dot pulse" style="color:#3fd19a"></span> <span id="trial-pill">7-day free trial · no payment needed</span></span>
+  <h1>Run your CTP & PVC print business from one screen.</h1>
+  <div class="bn">প্লেট স্টক, প্রিন্ট মিডিয়া, ইনভয়েস, চালান আর কাস্টমারের বাকি — সব এক জায়গায়।</div>
+  <p>Plate stock in pieces, PVC rolls in linear feet, billing in square feet, one customer ledger across both divisions — with every entry signed by the employee who made it.</p>
+  <div class="row mt" style="gap:12px"><a class="btn" style="padding:14px 22px;font-size:15px" href="#signup">Start my free trial →</a><a class="btn ghost" style="padding:14px 22px;font-size:15px;color:#fff;border-color:#ffffff40" href="#pricing">See pricing</a><a class="btn ghost" style="padding:14px 22px;font-size:15px;color:#fff;border-color:#ffffff40" href="/api/public/brochure.pdf">⬇ Brochure (PDF)</a></div>
+  <div class="cmyk"><span></span><span></span><span></span><span></span></div>
+</div></div>
+
+<section id="features"><div class="wrap">
+  <div class="sec-h reveal"><div class="kick">EVERYTHING A PRINTING PRESS NEEDS</div><h2>Built for Bangladeshi CTP & digital print shops</h2><p>No spreadsheets, no lost register pages. Every number reconciles.</p></div>
+  <div class="feat" id="feat"></div>
+</div></section>
+
+<section style="background:var(--card2)"><div class="wrap">
+  <div class="sec-h reveal"><div class="kick">START IN 3 MINUTES</div><h2>How it works</h2></div>
+  <div class="steps reveal"><div class="step"><b>Create your account</b><p class="muted small">Choose a Business ID — your staff use it to log in.</p></div>
+    <div class="step"><b>Set up your shop</b><p class="muted small">Your logo, plate sizes, rates, media, opening stock and customers — all editable.</p></div>
+    <div class="step"><b>Add your staff</b><p class="muted small">Separate logins for accountant, CTP & PVC operators, designer and manager.</p></div></div>
+</div></section>
+
+<section id="android" style="background:linear-gradient(135deg,#16466e,#13838f);color:#fff"><div class="wrap row" style="gap:40px;align-items:center;justify-content:space-between">
+  <div class="reveal" style="max-width:560px"><div class="kick" style="color:#9fe7ef">ANDROID APP</div><h2 style="font-size:34px;letter-spacing:-.8px;margin:6px 0">Your whole shop in your pocket</h2>
+    <p style="color:#d4e6f1">Take orders, check plate and roll stock, record payments and see today's sales from your phone. The app updates itself whenever we release a new version.</p>
+    <a class="btn" style="background:#fff;color:#16466e;padding:13px 20px" href="/api/public/app/download" id="apk-btn">⬇ Download Android app</a> <a class="btn" style="background:#ffffff22;color:#fff;padding:13px 20px;box-shadow:none" href="/api/public/brochure.pdf">⬇ Brochure PDF</a> <span class="small" id="apk-ver" style="color:#cfe6f0;margin-left:10px"></span></div>
+  <div class="reveal" style="background:#fff;border-radius:18px;padding:14px;width:190px"><img src="/api/public/app/qr.svg" alt="QR" style="width:100%;display:block"><div class="small" style="color:#16466e;text-align:center;font-weight:700;margin-top:6px">Scan to download</div></div>
+</div></section>
+
+<section id="pricing"><div class="wrap">
+  <div class="sec-h reveal"><div class="kick">SIMPLE PRICING</div><h2>One package. Every feature.</h2><p id="price-sub">Try everything free for 7 days, then pick a plan.</p><p class="mt"><a class="btn light" href="/api/public/brochure.pdf">⬇ Download full brochure (PDF, Bangla)</a> <a class="btn ghost" href="/brochure" target="_blank">View online</a></p></div>
+  <div class="prices" id="prices"></div>
+</div></section>
+
+<section id="signup" style="background:linear-gradient(180deg,var(--card2),#fff)"><div class="wrap signup">
+  <div class="reveal"><div class="kick">FREE TRIAL</div><h2 style="font-size:34px;letter-spacing:-.8px;margin:6px 0">Start your <span id="td">7</span>-day free trial</h2>
+    <p class="muted">All features unlocked. No payment needed to start. When the trial ends, choose a plan and pay with bKash / Nagad from inside the app.</p>
+    <a class="btn light mt" href="/api/public/brochure.pdf" style="margin-bottom:12px">⬇ Download brochure (PDF)</a>
+    <div class="card mt" style="box-shadow:none"><div class="kv"><span>Call</span><b id="c-phone"></b><span>Email</span><b id="c-email"></b><span>Website</span><b id="c-web"></b></div></div></div>
+  <form class="card reveal" id="sf"><div class="form f2">
+    <label class="field span2">Business name <span class="req">*</span><input name="business_name" placeholder="e.g. SKS Printers" required></label>
+    <label class="field">Owner name <span class="req">*</span><input name="owner_name" required></label>
+    <label class="field">Mobile <span class="req">*</span><input name="phone" placeholder="01XXXXXXXXX" required></label>
+    <label class="field">District<input name="district" placeholder="e.g. Gaibandha"></label>
+    <label class="field">Email<input name="email" type="email"></label>
+    <label class="field span2">Address<input name="address"></label>
+    <label class="field span2">Business ID <span class="req">*</span> <span class="hint">used to log in · letters, numbers, dashes</span><input name="slug" placeholder="sks-printers" required><span class="hint" id="slug-st"></span></label>
+    <label class="field">Admin username<input name="username" value="admin"></label>
+    <label class="field">Password <span class="req">*</span><input name="password" type="password" placeholder="min 6 characters" required></label>
+  </div><button class="btn mt" style="width:100%;padding:14px;font-size:15px" type="submit">Create my account</button>
+  <div class="sub mt" style="text-align:center">Already have an account? <a href="/app">Log in</a></div></form>
+</div></section>
+
+<footer class="foot"><div class="wrap row" style="justify-content:space-between"><div class="row"><img src="/brand/wordmark-white.png" alt="Baybex" style="height:22px"><b style="color:#fff" id="f-product">Baybex Printers Manager</b> · a product of <span id="f-company">Baybex Digital</span></div></div><div class="row"><a href="/api/public/brochure.pdf" style="color:#9fd0ff">Brochure PDF</a><a href="/api/public/app/download" style="color:#9fd0ff">Android app</a><span id="f-contact"></span></div></div></footer>
+
+<script src="/js/core.js"></script>
+<script>
+(async () => {
+  const F = [['plate', '#2a7fd0', 'CTP plate stock', 'Opening, production, purchase, sales and own-use per plate size. Paper-style stock register included.'],
+    ['roll', '#13a389', 'PVC rolls in linear feet', 'Each media + roll width has its own balance. Low-stock alerts before you run out.'],
+    ['print', '#e08a2e', 'Sq ft billing with fit check', 'Normal / Rotate layout check, live roll preview, wastage tracked separately.'],
+    ['invoice', '#8b5cf6', 'Separate CTP & PVC invoices', 'Your own invoice titles, logo and numbering. Print or save as PDF.'],
+    ['truck', '#2a7fd0', 'Delivery challans', 'Partial deliveries, delivery status, never double-deducts stock.'],
+    ['money', '#1d9b6c', 'Customer dues & payments', 'One ledger for both divisions. bKash, Nagad, cash, bank, advance payments.'],
+    ['chart', '#d9475a', 'Daily, monthly, annual reports', 'Plate-size sales, customer-wise sq ft, own use, wastage, Excel export.'],
+    ['users', '#13a389', 'Staff logins & roles', 'Every entry records who made it. You decide what each role can do.'],
+    ['backup', '#172b43', 'Your data, safe', 'Isolated database per business, one-click backup download.']];
+  $('#feat').innerHTML = F.map(([i, c, h, p]) => `<div class="fc reveal"><div class="ic" style="background:${c}">${ICON[i]}</div><h3>${h}</h3><p>${p}</p></div>`).join('');
+  try {
+    const cfg = await GET('/api/public/config'); const b = cfg.brand || {};
+    $('#b-product').textContent = $('#f-product').textContent = b.product || 'Baybex Printers Manager';
+    $('#b-company').textContent = 'BY ' + (b.company || 'Baybex Digital').toUpperCase(); $('#f-company').textContent = b.company || 'Baybex Digital';
+    $('#c-phone').textContent = b.phone || ''; $('#c-email').textContent = b.email || ''; $('#c-web').textContent = b.website || '';
+    $('#f-contact').textContent = [b.phone, b.email, b.website].filter(Boolean).join(' · ');
+    $('#td').textContent = cfg.trial_days; $('#trial-pill').textContent = `${cfg.trial_days}-day free trial · no payment needed`;
+    $('#price-sub').textContent = `Try everything free for ${cfg.trial_days} days, then pick a plan.`;
+    const hot = cfg.plans.find(p => p.highlight) || cfg.plans.find(p => p.badge) || cfg.plans[cfg.plans.length - 1];
+    $('#prices').innerHTML = cfg.plans.map(p => `<div class="pc reveal ${p === hot ? 'hot' : ''}">${p.badge ? `<span class="tag orange" style="position:absolute;top:-11px;right:18px">${esc(p.badge)}</span>` : ''}
+      ${p.discount_active ? `<span class="tag red" style="position:absolute;top:-11px;left:18px">${esc(p.discount_text)}</span>` : ''}
+      <b style="font-size:15px">${esc(p.name)}</b>${p.discount_active ? `<div class="strike" style="font-size:15px">৳${n0(p.original_price)}</div>` : ''}<div class="amt">৳${n0(p.final_price)}</div>
+      <div class="muted small">${p.months > 1 ? `≈ ৳${n0(Math.round(p.per_month))} per month · billed every ${p.months} months` : 'per month'}</div>
+      ${p.discount_active ? `<div class="small" style="color:var(--danger);font-weight:700">Save ৳${n0(p.discount_amount)}${p.discount_ends ? ' · offer ends ' + fdate(String(p.discount_ends).slice(0, 10)) : ''}</div>` : ''}
+      ${p.description ? `<div class="muted small">${esc(p.description)}</div>` : ''}
+      <ul>${p.features.map(f => `<li>${esc(f)}</li>`).join('')}</ul><a class="btn ${p === hot ? '' : 'light'}" href="#signup">${esc(p.button_text || 'Start free trial')}</a></div>`).join('');
+    if (!cfg.signup_open) $('#sf').innerHTML = `<div class="empty">New signups are temporarily closed. Please call ${esc(b.phone || '')}.</div>`;
+  } catch (e) { fail(e); }
+  GET('/api/public/app/version').then(r => { if (r.available) $('#apk-ver').textContent = `Version ${r.version_name} · ${(r.size / 1048576).toFixed(1)} MB`; else { $('#apk-btn').removeAttribute('href'); $('#apk-btn').textContent = 'Android app — coming soon'; } }).catch(() => {});
+  const io = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && e.target.classList.add('in')), { threshold: .12 });
+  $$('.reveal').forEach(el => io.observe(el));
+  const sf = $('#sf'); if (!sf.querySelector('[name=slug]')) return;
+  const slug = $('[name=slug]', sf), bn = $('[name=business_name]', sf); let touched = false;
+  const mk = v => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+  const check = debounce(async () => { const v = slug.value.trim(); if (v.length < 3) return ($('#slug-st').textContent = ''); const r = await GET('/api/public/business/' + encodeURIComponent(v)).catch(() => ({})); $('#slug-st').innerHTML = r.found ? '<span style="color:var(--danger)">✗ Already taken</span>' : '<span style="color:var(--ok)">✓ Available</span>'; }, 300);
+  bn.oninput = () => { if (!touched) { slug.value = mk(bn.value); check(); } };
+  slug.oninput = () => { touched = true; slug.value = mk(slug.value); check(); };
+  sf.onsubmit = e => { e.preventDefault(); busy($('button[type=submit]', sf), async () => {
+    const r = await POST('/api/public/signup', formData(sf), { idem: false });
+    try { localStorage.setItem('bbx_business', r.slug); } catch (e) {}
+    toast('Account created!', 'Opening your dashboard…'); setTimeout(() => (location.href = '/app'), 800);
+  }); };
+})();
+</script>
+</body>
+</html>
