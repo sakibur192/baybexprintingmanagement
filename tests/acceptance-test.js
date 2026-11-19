@@ -246,6 +246,21 @@ const ex = async (name, p, status) => { const r = await p; ok(name, r.status ===
   await ex('Used-up coupon rejected', call('b2', 'GET', `/api/subscription/quote?plan_id=${mon.id}&coupon=SAVE50`), 400);
   await call('sa', 'POST', '/api/super/plans/bulk-discount', { plan_ids: sp.map(p => p.id), discount_type: 'none' }, false);
 
+  console.log('\nWebsite content editing');
+  const st0 = (await call('sa', 'GET', '/api/super/settings')).data;
+  ok('Super admin gets website content + defaults', st0.website.hero.title && st0.website_defaults.features.items.length === 9);
+  const W = JSON.parse(JSON.stringify(st0.website));
+  W.hero.title = 'নতুন হেডলাইন <script>x</script>'; W.faq.show = false; W.features.items = W.features.items.slice(0, 3); W.hacker = { evil: 1 }; W.topbar.show = true;
+  await call('sa', 'PUT', '/api/super/settings', { website: W });
+  const pw = (await call('x', 'GET', '/api/public/config')).data.website;
+  ok('Edited headline published', pw.hero.title === 'নতুন হেডলাইন <script>x</script>');
+  ok('Section hidden & list shortened', pw.faq.show === false && pw.features.items.length === 3 && pw.topbar.show === true);
+  ok('Unknown keys dropped', pw.hacker === undefined);
+  await call('sa', 'PUT', '/api/super/settings', { website: { hero: { title: 'Only title' } } });
+  const pw2 = (await call('x', 'GET', '/api/public/config')).data.website;
+  ok('Missing fields fall back to defaults', pw2.hero.title === 'Only title' && pw2.steps.items.length === 3 && pw2.faq.show === true);
+  await call('sa', 'PUT', '/api/super/settings', { website: st0.website_defaults });
+
   console.log('\nBrochure');
   let br = await fetch(BASE + '/api/public/brochure.pdf');
   ok('Built-in brochure PDF downloads', br.status === 200 && Buffer.from(await br.arrayBuffer()).subarray(0, 4).toString() === '%PDF');

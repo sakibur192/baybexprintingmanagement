@@ -17,7 +17,7 @@ const QRCode = require('qrcode');
 /* ============================== CONFIG ============================== */
 const CONFIG = {
   port: 3000,
-db: { host: '201.18.212.48', port: 5446, user: 'postgres', password: 'nH19h4MZBaicpbRDQ2vYt5LfMDNQHcfHpsEI9VMmli6Y5bZtYJSvx35mPASU6NuG', database: 'postgres', max: 20 },
+  db: { host: '201.18.212.48', port: 5446, user: 'postgres', password: 'nH19h4MZBaicpbRDQ2vYt5LfMDNQHcfHpsEI9VMmli6Y5bZtYJSvx35mPASU6NuG', database: 'postgres', max: 20 },
   sessionDays: 7,
   timezone: 'Asia/Dhaka',
   superAdmin: { username: 'superadmin', password: 'baybex@123', full_name: 'Baybex Super Admin' },   // created on first start only
@@ -248,11 +248,67 @@ const DEFAULT_PLANS = [
   ['Monthly', 1, 500, 'Pay month by month', '', 1], ['3 Months', 3, 1500, 'Quarterly subscription', '', 2],
   ['6 Months', 6, 3000, 'Half-yearly subscription', 'Popular', 3], ['1 Year', 12, 6000, 'Yearly subscription', 'Best value', 4],
 ];
+/* ---------- public website content (fully editable in Super admin → Website) ----------
+   Placeholders usable in any text: {trial_days} {product} {company} {phone} */
+const DEFAULT_WEBSITE = {
+  seo: { title: '{product} — CTP & PVC print business software', description: 'Stock, sales, invoices, challans, customer dues and reports for CTP plate and PVC/digital print businesses in Bangladesh. {trial_days}-day free trial.' },
+  topbar: { show: false, text: '🎉 Eid offer: discounts on all plans this week!', link_text: 'See pricing', link: '#pricing' },
+  nav: { features: 'Features', pricing: 'Pricing', android: 'Android app', brochure: 'Brochure', faq: 'FAQ', login: 'Log in', cta: 'Start free trial' },
+  hero: { pill: '{trial_days}-day free trial · no payment needed', title: 'Run your CTP & PVC print business from one screen.',
+    subtitle: 'প্লেট স্টক, প্রিন্ট মিডিয়া, ইনভয়েস, চালান আর কাস্টমারের বাকি — সব এক জায়গায়।',
+    text: 'Plate stock in pieces, PVC rolls in linear feet, billing in square feet, one customer ledger across both divisions — with every entry signed by the employee who made it.',
+    cta_primary: 'Start my free trial →', cta_secondary: 'See pricing', cta_brochure: '⬇ Brochure (PDF)', show_brochure: true },
+  features: { show: true, kicker: 'EVERYTHING A PRINTING PRESS NEEDS', title: 'Built for Bangladeshi CTP & digital print shops', text: 'No spreadsheets, no lost register pages. Every number reconciles.',
+    items: [
+      { icon: 'plate', color: '#2a7fd0', title: 'CTP plate stock', text: 'Opening, production, purchase, sales and own-use per plate size. Paper-style stock register included.' },
+      { icon: 'roll', color: '#13a389', title: 'PVC rolls in linear feet', text: 'Each media + roll width has its own balance. Low-stock alerts before you run out.' },
+      { icon: 'print', color: '#e08a2e', title: 'Sq ft billing with fit check', text: 'Normal / Rotate layout check, live roll preview, wastage tracked separately.' },
+      { icon: 'invoice', color: '#8b5cf6', title: 'Separate CTP & PVC invoices', text: 'Your own invoice titles, logo and numbering. Print or save as PDF.' },
+      { icon: 'truck', color: '#2a7fd0', title: 'Delivery challans', text: 'Partial deliveries, delivery status, never double-deducts stock.' },
+      { icon: 'money', color: '#1d9b6c', title: 'Customer dues & payments', text: 'One ledger for both divisions. bKash, Nagad, cash, bank, advance payments.' },
+      { icon: 'chart', color: '#d9475a', title: 'Daily, monthly, annual reports', text: 'Plate-size sales, customer-wise sq ft, own use, wastage, Excel export.' },
+      { icon: 'users', color: '#13a389', title: 'Staff logins & roles', text: 'Every entry records who made it. You decide what each role can do.' },
+      { icon: 'backup', color: '#172b43', title: 'Your data, safe', text: 'Isolated database per business, one-click backup download.' }] },
+  steps: { show: true, kicker: 'START IN 3 MINUTES', title: 'How it works',
+    items: [{ title: 'Create your account', text: 'Choose a Business ID — your staff use it to log in.' },
+      { title: 'Set up your shop', text: 'Your logo, plate sizes, rates, media, opening stock and customers — all editable.' },
+      { title: 'Add your staff', text: 'Separate logins for accountant, CTP & PVC operators, designer and manager.' }] },
+  android: { show: true, kicker: 'ANDROID APP', title: 'Your whole shop in your pocket',
+    text: "Take orders, check plate and roll stock, record payments and see today's sales from your phone. The app updates itself whenever we release a new version.",
+    button: '⬇ Download Android app', brochure_button: '⬇ Brochure PDF', qr_caption: 'Scan to download', coming_soon: 'Android app — coming soon' },
+  pricing: { show: true, kicker: 'SIMPLE PRICING', title: 'One package. Every feature.', subtitle: 'Try everything free for {trial_days} days, then pick a plan.',
+    brochure_button: '⬇ Download full brochure (PDF, Bangla)', brochure_view: 'View online' },
+  faq: { show: true, kicker: 'QUESTIONS', title: 'Frequently asked questions',
+    items: [{ q: 'Do I need to install anything?', a: 'No. It runs in any web browser on computer or phone. There is also an Android app.' },
+      { q: 'What happens after the free trial?', a: 'Choose a plan and pay by bKash / Nagad from inside the software. Your data stays exactly as it was.' },
+      { q: 'Can I continue my old bill book numbers?', a: 'Yes. Invoice, challan and receipt numbers can start from any number.' },
+      { q: 'Is my data safe?', a: 'Every business has its own separate database, and you can download a full backup any time.' },
+      { q: 'Do you help with setup?', a: 'Yes — call us and we will help you add plate sizes, media, opening stock and staff.' }] },
+  signup: { show: true, kicker: 'FREE TRIAL', title: 'Start your {trial_days}-day free trial',
+    text: 'All features unlocked. No payment needed to start. When the trial ends, choose a plan and pay with bKash / Nagad from inside the app.',
+    button: 'Create my account', brochure_button: '⬇ Download brochure (PDF)', closed_text: 'New signups are temporarily closed. Please call {phone}.' },
+  footer: { text: 'a product of {company}', show_links: true },
+};
+function mergeDeep(def, val) {
+  if (Array.isArray(def)) return Array.isArray(val) ? val : def;
+  if (def && typeof def === 'object') { const o = {}; for (const k of Object.keys(def)) o[k] = mergeDeep(def[k], val?.[k]); return o; }
+  return val === undefined || val === null ? def : val;
+}
+function cleanWebsite(v) {   // keep only known keys, strings ≤ 2000 chars, lists ≤ 24 items (text is always shown escaped on the page)
+  const walk = (def, val) => {
+    if (Array.isArray(def)) return (Array.isArray(val) ? val : def).slice(0, 24).map(it => walk(def[0] || {}, it));
+    if (def && typeof def === 'object') { const o = {}; for (const k of Object.keys(def)) o[k] = walk(def[k], val?.[k]); return o; }
+    if (typeof def === 'boolean') return val === undefined ? def : !!val && val !== 'false';
+    return val === undefined || val === null ? def : String(val).slice(0, 2000);
+  };
+  return walk(DEFAULT_WEBSITE, v);
+}
 const DEFAULT_PLATFORM = {
   brand: { company: 'Baybex Digital', product: 'Baybex Printers Manager', tagline: 'CTP plate & PVC print business management software',
     phone: '01750006696', email: 'bussiness@baybexai.com', website: 'baybex.com' },
   app_url: '',   // public base URL of this server, e.g. https://print.baybexai.com — used in brochure, QR codes and shared links
   trial_days: 7, signup_open: true, announcement: '',
+  website: DEFAULT_WEBSITE,
   payment: { instructions: 'Send the plan amount using Send Money, then submit the Transaction ID below. Your subscription is activated after verification (usually within a few hours).', numbers: [] },
 };
 /* ---------- pricing: plan discounts (percent / flat, optional dates) + coupon codes ---------- */
@@ -1771,7 +1827,8 @@ app.post('/api/subscription/pay', wrap(async (req, res) => {
 app.get('/api/public/config', wrap(async (req, res) => {
   const [brand, trial_days, signup_open, payment, plans, app] = await Promise.all([platformSetting('brand'), platformSetting('trial_days'), platformSetting('signup_open'), platformSetting('payment'),
     pricedPlans(), latestRelease()]);
-  res.json({ brand, trial_days, signup_open, plans, payment_numbers: payment?.numbers || [], base_url: await baseUrl(req),
+  const website = mergeDeep(DEFAULT_WEBSITE, await platformSetting('website'));
+  res.json({ brand, trial_days, signup_open, plans, website, payment_numbers: payment?.numbers || [], base_url: await baseUrl(req),
     app: app ? { version_name: app.version_name, size: app.size } : null });
 }));
 app.get('/api/public/business/:slug', wrap(async (req, res) => {
@@ -2066,11 +2123,13 @@ app.post('/api/super/payments/:id/reject', wrap(async (req, res) => {
 /* platform settings, admins, audit */
 app.get('/api/super/settings', wrap(async (req, res) => {
   const rows = await pq(`SELECT key, value FROM public.platform_settings`);
-  res.json({ ...DEFAULT_PLATFORM, ...Object.fromEntries(rows.map(r => [r.key, r.value])) });
+  const all = { ...DEFAULT_PLATFORM, ...Object.fromEntries(rows.map(r => [r.key, r.value])) };
+  all.website = mergeDeep(DEFAULT_WEBSITE, all.website); all.website_defaults = DEFAULT_WEBSITE;
+  res.json(all);
 }));
 app.put('/api/super/settings', wrap(async (req, res) => {
   for (const k of Object.keys(DEFAULT_PLATFORM)) if (req.body[k] !== undefined)
-    await pool.query(`INSERT INTO public.platform_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [k, JSON.stringify(req.body[k])]);
+    await pool.query(`INSERT INTO public.platform_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [k, JSON.stringify(k === 'website' ? cleanWebsite(req.body[k]) : req.body[k])]);
   await platformAudit(null, req.admin, 'settings_updated', null, req.body); res.json({ ok: true });
 }));
 app.get('/api/super/admins', wrap(async (req, res) => res.json(await pq(`SELECT id, username, full_name, active, last_login, created_at FROM public.platform_admins ORDER BY id`))));

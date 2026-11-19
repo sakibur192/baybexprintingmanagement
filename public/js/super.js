@@ -26,7 +26,7 @@ const SA = {
     }); };
   },
   shell() {
-    const NAVS = [['dash', 'Dashboard', 'dash'], ['tenants', 'Businesses', 'users'], ['payments', 'Subscription Payments', 'money'], ['plans', 'Plans & Pricing', 'invoice'], ['settings', 'Platform Settings', 'gear'], ['android', 'Android App', 'phone'], ['brochure', 'Brochure', 'doc'], ['admins', 'Super Admins', 'shield'], ['audit', 'Audit Log', 'register']];
+    const NAVS = [['dash', 'Dashboard', 'dash'], ['tenants', 'Businesses', 'users'], ['payments', 'Subscription Payments', 'money'], ['plans', 'Plans & Pricing', 'invoice'], ['settings', 'Platform Settings', 'gear'], ['android', 'Android App', 'phone'], ['website', 'Website Content', 'eye'], ['brochure', 'Brochure', 'doc'], ['admins', 'Super Admins', 'shield'], ['audit', 'Audit Log', 'register']];
     $('#app').innerHTML = `<aside class="side" id="side"><div class="brand"><span style="background:#fff;border-radius:12px;padding:5px;display:grid;flex:none"><img src="/brand/mark.png" alt="" style="height:32px"></span><div><strong>${esc(this.brand?.company || 'Baybex Digital')}</strong><small>SUPER ADMIN · ${esc((this.brand?.product || '').toUpperCase())}</small></div></div>
       <nav>${NAVS.map(([id, l, i]) => `<button class="nav" data-p="${id}">${ICON[i]}<span>${l}</span>${id === 'payments' ? '<span class="pill hide" id="pend"></span>' : ''}</button>`).join('')}</nav>
       <div class="side-foot"><a href="/" style="color:#9fd0ff">Open public website →</a></div></aside><div class="overlay" id="ovl"></div>
@@ -53,7 +53,8 @@ const SA = {
     const page = this.pages[p] ? p : 'dash';
     $$('.nav').forEach(n => n.classList.toggle('active', n.dataset.p === page));
     $('#title').textContent = this.pages[page].title;
-    const v = $('#view'); v.classList.remove('page-enter'); void v.offsetWidth; v.classList.add('page-enter');
+    const old = $('#view'), v = old.cloneNode(false); old.replaceWith(v);   // fresh node: no event handlers leak between pages
+    v.classList.remove('page-enter'); void v.offsetWidth; v.classList.add('page-enter');
     v.innerHTML = `<div class="grid g4">${'<div class="sk sk-card"></div>'.repeat(4)}</div>`;
     Promise.resolve(this.pages[page].render(v, ...args)).then(() => { animateIn(v); bindTips(v); }).catch(e => { fail(e); v.innerHTML = `<div class="panel"><div class="empty">${esc(e.message)}</div></div>`; });
     GET('/api/super/payments', { status: 'pending' }).then(r => { const el = $('#pend'); if (el) { el.textContent = r.length; el.classList.toggle('hide', !r.length); } }).catch(() => {});
@@ -364,6 +365,65 @@ SA.pages.android = {
       $('#es', m.el).onclick = () => busy($('#es', m.el), async () => { await PUT('/api/super/app/releases/' + r.id, formData($('#ef', m.el))); toast('Saved'); m.close(); SA.refresh(); });
       $('#dl', m.el).onclick = async () => { if (await confirmBox('Delete this version?', 'The APK file is removed permanently.', { ok: 'Delete', danger: true })) { await api('DELETE', '/api/super/app/releases/' + r.id).catch(fail); m.close(); SA.refresh(); } };
     });
+  },
+};
+
+/* ---------- public website content editor ---------- */
+const WS = [
+  ['seo', 'Page title & Google', [['title', 'Browser tab / Google title'], ['description', 'Google description', 'ta']]],
+  ['topbar', 'Announcement bar (very top)', [['show', 'Show the bar', 'bool'], ['text', 'Text'], ['link_text', 'Link text'], ['link', 'Link (#pricing, /app or https://…)']]],
+  ['nav', 'Top menu', [['features', 'Features link'], ['pricing', 'Pricing link'], ['android', 'Android link'], ['faq', 'FAQ link'], ['brochure', 'Brochure link'], ['login', 'Log in button'], ['cta', 'Main button']]],
+  ['hero', 'Hero (top banner)', [['pill', 'Small pill text'], ['title', 'Big headline', 'ta'], ['subtitle', 'Second line (Bangla)', 'ta'], ['text', 'Paragraph', 'ta'], ['cta_primary', 'Main button'], ['cta_secondary', 'Second button'], ['cta_brochure', 'Brochure button'], ['show_brochure', 'Show brochure button', 'bool']]],
+  ['features', 'Features section', [['show', 'Show section', 'bool'], ['kicker', 'Small heading'], ['title', 'Title'], ['text', 'Text', 'ta']], { key: 'items', label: 'Feature cards', fields: [['icon', 'Icon', 'icon'], ['color', 'Colour', 'color'], ['title', 'Title'], ['text', 'Text', 'ta']], blank: { icon: 'check', color: '#2a7fd0', title: 'New feature', text: '' } }],
+  ['steps', 'How it works', [['show', 'Show section', 'bool'], ['kicker', 'Small heading'], ['title', 'Title']], { key: 'items', label: 'Steps', fields: [['title', 'Step title'], ['text', 'Step text', 'ta']], blank: { title: 'New step', text: '' } }],
+  ['android', 'Android app section', [['show', 'Show section', 'bool'], ['kicker', 'Small heading'], ['title', 'Title'], ['text', 'Text', 'ta'], ['button', 'Download button'], ['brochure_button', 'Brochure button'], ['qr_caption', 'QR caption'], ['coming_soon', 'Text when no app uploaded']]],
+  ['pricing', 'Pricing section', [['show', 'Show section', 'bool'], ['kicker', 'Small heading'], ['title', 'Title'], ['subtitle', 'Subtitle'], ['brochure_button', 'Brochure button'], ['brochure_view', 'View online link']], null, 'Plan cards come from Plans & Pricing.'],
+  ['faq', 'FAQ section', [['show', 'Show section', 'bool'], ['kicker', 'Small heading'], ['title', 'Title']], { key: 'items', label: 'Questions', fields: [['q', 'Question'], ['a', 'Answer', 'ta']], blank: { q: 'New question?', a: '' } }],
+  ['signup', 'Free trial / signup', [['show', 'Show section', 'bool'], ['kicker', 'Small heading'], ['title', 'Title'], ['text', 'Text', 'ta'], ['button', 'Form button'], ['brochure_button', 'Brochure button'], ['closed_text', 'Text when signups are closed']]],
+  ['footer', 'Footer', [['text', 'Footer text'], ['show_links', 'Show Brochure / Android links', 'bool']]],
+];
+SA.pages.website = {
+  title: 'Website Content',
+  async render(v) {
+    const st = await GET('/api/super/settings');
+    const W = JSON.parse(JSON.stringify(st.website)), D = st.website_defaults;
+    const icons = Object.keys(ICON).sort();
+    const inp = (path, val, type, label) => type === 'bool' ? `<label class="check"><input type="checkbox" data-p="${path}" ${val ? 'checked' : ''}> ${esc(label)}</label>`
+      : type === 'ta' ? field(esc(label), `<textarea data-p="${path}" rows="3">${esc(val)}</textarea>`, 'span2')
+      : type === 'color' ? field(esc(label), `<input type="color" data-p="${path}" value="${/^#[0-9a-f]{6}$/i.test(val) ? val : '#2a7fd0'}" style="height:42px;padding:3px">`)
+      : type === 'icon' ? field(esc(label), `<select data-p="${path}">${icons.map(i => opt(i, i, val)).join('')}</select>`)
+      : field(esc(label), `<input data-p="${path}" value="${esc(val)}">`);
+    const sectionHTML = ([key, title, fields, list, note]) => `<details class="panel" data-sec="${key}" style="padding:0" ${this.open === key ? 'open' : ''}><summary style="padding:16px 18px;cursor:pointer;font-weight:700;display:flex;justify-content:space-between;align-items:center">${esc(title)}
+        <span class="row" style="gap:6px">${W[key].show === false && key !== 'topbar' ? '<span class="tag gray">Hidden</span>' : ''}${key === 'topbar' && !W.topbar.show ? '<span class="tag gray">Off</span>' : ''}<span class="sub">click to edit</span></span></summary>
+      <div style="padding:0 18px 18px">${note ? `<div class="note" style="margin:0 0 12px">${esc(note)}</div>` : ''}<div class="form f2">${fields.map(([f, l, t]) => inp(`${key}.${f}`, W[key][f], t, l)).join('')}</div>
+      ${list ? `<div class="divider"></div><div class="row" style="justify-content:space-between"><b>${esc(list.label)} (${W[key][list.key].length})</b><button class="btn xs light" data-add="${key}">${ICON.plus} Add</button></div>
+        <div class="grid mt" style="gap:10px">${W[key][list.key].map((it, i) => `<div class="kpi"><div class="row" style="justify-content:space-between;margin-bottom:6px"><small>#${i + 1}${key === 'features' ? ` <span style="display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;background:${esc(it.color)};color:#fff;vertical-align:middle">${(ICON[it.icon] || '').replace('<svg', '<svg width="13"')}</span>` : ''}</small>
+          <span class="row" style="gap:4px"><button class="btn xs ghost" data-mv="${key}:${i}:-1" ${i ? '' : 'disabled'}>↑</button><button class="btn xs ghost" data-mv="${key}:${i}:1" ${i < W[key][list.key].length - 1 ? '' : 'disabled'}>↓</button><button class="btn xs ghost" data-rm="${key}:${i}" style="color:var(--danger)">✕</button></span></div>
+          <div class="form f2">${list.fields.map(([f, l, t]) => inp(`${key}.${list.key}.${i}.${f}`, it[f], t, l)).join('')}</div></div>`).join('')}</div>` : ''}
+      <div class="actions"><button class="btn xs ghost" data-reset="${key}">Reset this section to default</button></div></div></details>`;
+    const draw = () => {
+      v.innerHTML = `<div class="head"><div class="sub">Edit every text on the public website. Placeholders: <code>{trial_days}</code> <code>{product}</code> <code>{company}</code> <code>{phone}</code></div>
+          <div class="row"><a class="btn ghost" href="/" target="_blank">${ICON.eye} Open website</a><button class="btn teal" id="wsave">${ICON.check} Save & publish</button></div></div>
+        <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start"><div id="secs">${WS.map(sectionHTML).join('')}</div>
+        <div style="position:sticky;top:80px"><div class="panel" style="padding:0;overflow:hidden"><div class="row" style="padding:10px 14px;justify-content:space-between;border-bottom:1px solid var(--line)"><b class="small">Live preview</b><span class="sub" id="pvst">saved version</span></div>
+          <div style="height:72vh;overflow:hidden"><iframe id="pv" src="/?preview=${Date.now()}" style="width:166%;height:166%;border:0;transform:scale(.6);transform-origin:0 0"></iframe></div></div></div></div>`;
+      $$('details[data-sec]', v).forEach(d => d.addEventListener('toggle', () => { if (d.open) this.open = d.dataset.sec; }));
+      $('#wsave', v).onclick = () => busy($('#wsave', v), async () => { collect(); await PUT('/api/super/settings', { website: W }); toast('Website updated', 'Changes are live now'); $('#pv', v).src = '/?preview=' + Date.now(); $('#pvst', v).textContent = 'saved ' + new Date().toLocaleTimeString(); });
+      v.oninput = () => { $('#pvst', v).textContent = 'unsaved changes — press Save'; };
+    };
+    const setPath = (path, val) => { const ks = path.split('.'); let o = W; ks.slice(0, -1).forEach(k => (o = o[k])); o[ks[ks.length - 1]] = val; };
+    const collect = () => $$('[data-p]', v).forEach(el => setPath(el.dataset.p, el.type === 'checkbox' ? el.checked : el.value));
+    v.onclick = e => {
+      const add = e.target.closest('[data-add]'), mv = e.target.closest('[data-mv]'), rm = e.target.closest('[data-rm]'), rs = e.target.closest('[data-reset]');
+      if (!add && !mv && !rm && !rs) return;
+      collect();
+      if (add) { const sec = WS.find(x => x[0] === add.dataset.add); W[sec[0]][sec[3].key].push({ ...sec[3].blank }); this.open = sec[0]; }
+      if (mv) { const [k, i, d] = mv.dataset.mv.split(':'); const L = W[k].items, j = +i + +d; [L[+i], L[j]] = [L[j], L[+i]]; this.open = k; }
+      if (rm) { const [k, i] = rm.dataset.rm.split(':'); W[k].items.splice(+i, 1); this.open = k; }
+      if (rs) { const k = rs.dataset.reset; W[k] = JSON.parse(JSON.stringify(D[k])); this.open = k; toast('Section reset', 'Press Save to publish', 'info'); }
+      const y = scrollY; draw(); scrollTo(0, y); $('#pvst', v).textContent = 'unsaved changes — press Save';
+    };
+    draw();
   },
 };
 

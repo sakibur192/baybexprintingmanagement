@@ -507,7 +507,8 @@ const App = {
     const pg = this.pages[target];
     $('#title').textContent = pg.title || def?.label || '';
     $('#kick').textContent = pg.kicker || String(App.meta.settings.company?.name || '').toUpperCase() + ' / ' + (def ? (NAV.slice(0, NAV.indexOf(def)).reverse().find(n => n.cap)?.cap || '') : '');
-    const v = $('#view'); v.classList.remove('page-enter'); void v.offsetWidth; v.classList.add('page-enter');
+    const old = $('#view'), v = old.cloneNode(false); old.replaceWith(v);   // fresh node: no event handlers leak between pages
+    v.classList.remove('page-enter'); void v.offsetWidth; v.classList.add('page-enter');
     v.innerHTML = `<div class="grid g4">${'<div class="sk sk-card"></div>'.repeat(4)}</div><div class="sk" style="height:280px;margin-top:16px;border-radius:14px"></div>`;
     this.current = target; scrollTo(0, 0);
     Promise.resolve(pg.render(v, ...args)).then(() => { animateIn(v); bindTips(v); }).catch(e => { fail(e); v.innerHTML = `<div class="panel"><div class="empty">${esc(e.message)}</div></div>`; });

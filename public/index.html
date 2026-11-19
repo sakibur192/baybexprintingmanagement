@@ -46,48 +46,52 @@ section{padding:80px 0}
 <body>
 <div class="loader-line" id="loader"></div>
 <div id="toasts"></div><div class="tip" id="tip"></div>
+<div id="topbar" class="hide" style="background:linear-gradient(90deg,#16466e,#13838f);color:#fff;text-align:center;padding:9px 16px;font-size:13px;font-weight:600"><span data-w="topbar.text"></span> <a data-w="topbar.link_text" data-href="topbar.link" style="color:#9fe7ef;text-decoration:underline;margin-left:6px"></a></div>
 <header class="nav-top"><div class="wrap"><div class="brand" style="padding:0;color:var(--ink)"><img src="/brand/mark.png" alt="Baybex" style="height:40px"><div><strong id="b-product">Baybex Printers Manager</strong><small style="color:var(--muted)" id="b-company">BY BAYBEX DIGITAL</small></div></div>
-  <div class="grow" style="flex:1"></div><a class="l" href="#features">Features</a><a class="l" href="#pricing">Pricing</a><a class="l" href="#android">Android app</a><a class="l" href="/brochure" target="_blank">Brochure</a><a class="btn ghost" href="/app">Log in</a><a class="btn" href="#signup">Start free trial</a></div></header>
+  <div class="grow" style="flex:1"></div><a class="l" href="#features" data-w="nav.features" data-sec="features">Features</a><a class="l" href="#pricing" data-w="nav.pricing" data-sec="pricing">Pricing</a><a class="l" href="#android" data-w="nav.android" data-sec="android">Android app</a><a class="l" href="#faq" data-w="nav.faq" data-sec="faq">FAQ</a><a class="l" href="/brochure" target="_blank" data-w="nav.brochure">Brochure</a><a class="btn ghost" href="/app" data-w="nav.login">Log in</a><a class="btn" href="#signup" data-w="nav.cta">Start free trial</a></div></header>
 
 <div class="hero"><div class="wrap" style="position:relative">
   <div class="plates"><div class="plate"><i></i></div><div class="plate"><i></i></div><div class="plate"><i></i></div></div>
   <img src="/brand/wordmark-white.png" alt="Baybex" style="height:34px;display:block;margin-bottom:22px;animation:rise .7s var(--ease) both">
-  <span class="pill2"><span class="dot pulse" style="color:#3fd19a"></span> <span id="trial-pill">7-day free trial · no payment needed</span></span>
-  <h1>Run your CTP & PVC print business from one screen.</h1>
-  <div class="bn">প্লেট স্টক, প্রিন্ট মিডিয়া, ইনভয়েস, চালান আর কাস্টমারের বাকি — সব এক জায়গায়।</div>
-  <p>Plate stock in pieces, PVC rolls in linear feet, billing in square feet, one customer ledger across both divisions — with every entry signed by the employee who made it.</p>
-  <div class="row mt" style="gap:12px"><a class="btn" style="padding:14px 22px;font-size:15px" href="#signup">Start my free trial →</a><a class="btn ghost" style="padding:14px 22px;font-size:15px;color:#fff;border-color:#ffffff40" href="#pricing">See pricing</a><a class="btn ghost" style="padding:14px 22px;font-size:15px;color:#fff;border-color:#ffffff40" href="/api/public/brochure.pdf">⬇ Brochure (PDF)</a></div>
+  <span class="pill2"><span class="dot pulse" style="color:#3fd19a"></span> <span data-w="hero.pill"></span></span>
+  <h1 data-w="hero.title"></h1>
+  <div class="bn" data-w="hero.subtitle"></div>
+  <p data-w="hero.text"></p>
+  <div class="row mt" style="gap:12px"><a class="btn" style="padding:14px 22px;font-size:15px" href="#signup" data-w="hero.cta_primary"></a><a class="btn ghost" style="padding:14px 22px;font-size:15px;color:#fff;border-color:#ffffff40" href="#pricing" data-w="hero.cta_secondary" data-sec="pricing"></a><a class="btn ghost" id="hero-bro" style="padding:14px 22px;font-size:15px;color:#fff;border-color:#ffffff40" href="/api/public/brochure.pdf" data-w="hero.cta_brochure"></a></div>
   <div class="cmyk"><span></span><span></span><span></span><span></span></div>
 </div></div>
 
 <section id="features"><div class="wrap">
-  <div class="sec-h reveal"><div class="kick">EVERYTHING A PRINTING PRESS NEEDS</div><h2>Built for Bangladeshi CTP & digital print shops</h2><p>No spreadsheets, no lost register pages. Every number reconciles.</p></div>
+  <div class="sec-h reveal"><div class="kick" data-w="features.kicker"></div><h2 data-w="features.title"></h2><p data-w="features.text"></p></div>
   <div class="feat" id="feat"></div>
 </div></section>
 
-<section style="background:var(--card2)"><div class="wrap">
-  <div class="sec-h reveal"><div class="kick">START IN 3 MINUTES</div><h2>How it works</h2></div>
-  <div class="steps reveal"><div class="step"><b>Create your account</b><p class="muted small">Choose a Business ID — your staff use it to log in.</p></div>
-    <div class="step"><b>Set up your shop</b><p class="muted small">Your logo, plate sizes, rates, media, opening stock and customers — all editable.</p></div>
-    <div class="step"><b>Add your staff</b><p class="muted small">Separate logins for accountant, CTP & PVC operators, designer and manager.</p></div></div>
+<section id="steps" style="background:var(--card2)"><div class="wrap">
+  <div class="sec-h reveal"><div class="kick" data-w="steps.kicker"></div><h2 data-w="steps.title"></h2></div>
+  <div class="steps reveal" id="steplist"></div>
 </div></section>
 
 <section id="android" style="background:linear-gradient(135deg,#16466e,#13838f);color:#fff"><div class="wrap row" style="gap:40px;align-items:center;justify-content:space-between">
-  <div class="reveal" style="max-width:560px"><div class="kick" style="color:#9fe7ef">ANDROID APP</div><h2 style="font-size:34px;letter-spacing:-.8px;margin:6px 0">Your whole shop in your pocket</h2>
-    <p style="color:#d4e6f1">Take orders, check plate and roll stock, record payments and see today's sales from your phone. The app updates itself whenever we release a new version.</p>
-    <a class="btn" style="background:#fff;color:#16466e;padding:13px 20px" href="/api/public/app/download" id="apk-btn">⬇ Download Android app</a> <a class="btn" style="background:#ffffff22;color:#fff;padding:13px 20px;box-shadow:none" href="/api/public/brochure.pdf">⬇ Brochure PDF</a> <span class="small" id="apk-ver" style="color:#cfe6f0;margin-left:10px"></span></div>
-  <div class="reveal" style="background:#fff;border-radius:18px;padding:14px;width:190px"><img src="/api/public/app/qr.svg" alt="QR" style="width:100%;display:block"><div class="small" style="color:#16466e;text-align:center;font-weight:700;margin-top:6px">Scan to download</div></div>
+  <div class="reveal" style="max-width:560px"><div class="kick" style="color:#9fe7ef" data-w="android.kicker"></div><h2 style="font-size:34px;letter-spacing:-.8px;margin:6px 0" data-w="android.title"></h2>
+    <p style="color:#d4e6f1;white-space:pre-line" data-w="android.text"></p>
+    <a class="btn" style="background:#fff;color:#16466e;padding:13px 20px" href="/api/public/app/download" id="apk-btn" data-w="android.button"></a> <a class="btn" style="background:#ffffff22;color:#fff;padding:13px 20px;box-shadow:none" href="/api/public/brochure.pdf" data-w="android.brochure_button"></a> <span class="small" id="apk-ver" style="color:#cfe6f0;margin-left:10px"></span></div>
+  <div class="reveal" style="background:#fff;border-radius:18px;padding:14px;width:190px"><img src="/api/public/app/qr.svg" alt="QR" style="width:100%;display:block"><div class="small" style="color:#16466e;text-align:center;font-weight:700;margin-top:6px" data-w="android.qr_caption"></div></div>
 </div></section>
 
 <section id="pricing"><div class="wrap">
-  <div class="sec-h reveal"><div class="kick">SIMPLE PRICING</div><h2>One package. Every feature.</h2><p id="price-sub">Try everything free for 7 days, then pick a plan.</p><p class="mt"><a class="btn light" href="/api/public/brochure.pdf">⬇ Download full brochure (PDF, Bangla)</a> <a class="btn ghost" href="/brochure" target="_blank">View online</a></p></div>
+  <div class="sec-h reveal"><div class="kick" data-w="pricing.kicker"></div><h2 data-w="pricing.title"></h2><p data-w="pricing.subtitle"></p><p class="mt"><a class="btn light" href="/api/public/brochure.pdf" data-w="pricing.brochure_button"></a> <a class="btn ghost" href="/brochure" target="_blank" data-w="pricing.brochure_view"></a></p></div>
   <div class="prices" id="prices"></div>
 </div></section>
 
+<section id="faq" style="background:var(--card2)"><div class="wrap" style="max-width:860px">
+  <div class="sec-h reveal"><div class="kick" data-w="faq.kicker"></div><h2 data-w="faq.title"></h2></div>
+  <div id="faqlist" style="display:grid;gap:10px"></div>
+</div></section>
+
 <section id="signup" style="background:linear-gradient(180deg,var(--card2),#fff)"><div class="wrap signup">
-  <div class="reveal"><div class="kick">FREE TRIAL</div><h2 style="font-size:34px;letter-spacing:-.8px;margin:6px 0">Start your <span id="td">7</span>-day free trial</h2>
-    <p class="muted">All features unlocked. No payment needed to start. When the trial ends, choose a plan and pay with bKash / Nagad from inside the app.</p>
-    <a class="btn light mt" href="/api/public/brochure.pdf" style="margin-bottom:12px">⬇ Download brochure (PDF)</a>
+  <div class="reveal"><div class="kick" data-w="signup.kicker"></div><h2 style="font-size:34px;letter-spacing:-.8px;margin:6px 0" data-w="signup.title"></h2>
+    <p class="muted" style="white-space:pre-line" data-w="signup.text"></p>
+    <a class="btn light mt" href="/api/public/brochure.pdf" style="margin-bottom:12px" data-w="signup.brochure_button"></a>
     <div class="card mt" style="box-shadow:none"><div class="kv"><span>Call</span><b id="c-phone"></b><span>Email</span><b id="c-email"></b><span>Website</span><b id="c-web"></b></div></div></div>
   <form class="card reveal" id="sf"><div class="form f2">
     <label class="field span2">Business name <span class="req">*</span><input name="business_name" placeholder="e.g. SKS Printers" required></label>
@@ -99,47 +103,51 @@ section{padding:80px 0}
     <label class="field span2">Business ID <span class="req">*</span> <span class="hint">used to log in · letters, numbers, dashes</span><input name="slug" placeholder="sks-printers" required><span class="hint" id="slug-st"></span></label>
     <label class="field">Admin username<input name="username" value="admin"></label>
     <label class="field">Password <span class="req">*</span><input name="password" type="password" placeholder="min 6 characters" required></label>
-  </div><button class="btn mt" style="width:100%;padding:14px;font-size:15px" type="submit">Create my account</button>
+  </div><button class="btn mt" style="width:100%;padding:14px;font-size:15px" type="submit" data-w="signup.button"></button>
   <div class="sub mt" style="text-align:center">Already have an account? <a href="/app">Log in</a></div></form>
 </div></section>
 
-<footer class="foot"><div class="wrap row" style="justify-content:space-between"><div class="row"><img src="/brand/wordmark-white.png" alt="Baybex" style="height:22px"><b style="color:#fff" id="f-product">Baybex Printers Manager</b> · a product of <span id="f-company">Baybex Digital</span></div></div><div class="row"><a href="/api/public/brochure.pdf" style="color:#9fd0ff">Brochure PDF</a><a href="/api/public/app/download" style="color:#9fd0ff">Android app</a><span id="f-contact"></span></div></div></footer>
+<footer class="foot"><div class="wrap row" style="justify-content:space-between"><div class="row"><img src="/brand/wordmark-white.png" alt="Baybex" style="height:22px"><b style="color:#fff" id="f-product">Baybex Printers Manager</b> · <span data-w="footer.text"></span></div><div class="row"><span id="f-links" class="row"><a href="/api/public/brochure.pdf" style="color:#9fd0ff">Brochure PDF</a><a href="/api/public/app/download" style="color:#9fd0ff">Android app</a></span><span id="f-contact"></span></div></div></footer>
 
 <script src="/js/core.js"></script>
 <script>
 (async () => {
-  const F = [['plate', '#2a7fd0', 'CTP plate stock', 'Opening, production, purchase, sales and own-use per plate size. Paper-style stock register included.'],
-    ['roll', '#13a389', 'PVC rolls in linear feet', 'Each media + roll width has its own balance. Low-stock alerts before you run out.'],
-    ['print', '#e08a2e', 'Sq ft billing with fit check', 'Normal / Rotate layout check, live roll preview, wastage tracked separately.'],
-    ['invoice', '#8b5cf6', 'Separate CTP & PVC invoices', 'Your own invoice titles, logo and numbering. Print or save as PDF.'],
-    ['truck', '#2a7fd0', 'Delivery challans', 'Partial deliveries, delivery status, never double-deducts stock.'],
-    ['money', '#1d9b6c', 'Customer dues & payments', 'One ledger for both divisions. bKash, Nagad, cash, bank, advance payments.'],
-    ['chart', '#d9475a', 'Daily, monthly, annual reports', 'Plate-size sales, customer-wise sq ft, own use, wastage, Excel export.'],
-    ['users', '#13a389', 'Staff logins & roles', 'Every entry records who made it. You decide what each role can do.'],
-    ['backup', '#172b43', 'Your data, safe', 'Isolated database per business, one-click backup download.']];
-  $('#feat').innerHTML = F.map(([i, c, h, p]) => `<div class="fc reveal"><div class="ic" style="background:${c}">${ICON[i]}</div><h3>${h}</h3><p>${p}</p></div>`).join('');
+  let cfg = {};
+  try { cfg = await GET('/api/public/config'); } catch (e) { fail(e); }
+  const b = cfg.brand || {}, W = cfg.website || {};
+  const fill = t => String(t ?? '').replace(/\{trial_days\}/g, cfg.trial_days ?? 7).replace(/\{product\}/g, b.product || 'Baybex Printers Manager').replace(/\{company\}/g, b.company || 'Baybex Digital').replace(/\{phone\}/g, b.phone || '');
+  const get = k => k.split('.').reduce((o, x) => o?.[x], W);
+  $$('[data-w]').forEach(el => { const v = get(el.dataset.w); if (v !== undefined) el.textContent = fill(v); });
+  $$('[data-href]').forEach(el => { const v = String(get(el.dataset.href) || ''); if (/^(#|\/|https?:\/\/)/.test(v)) el.setAttribute('href', v); });
+  document.title = fill(W.seo?.title || document.title);
+  let md = document.querySelector('meta[name=description]'); if (md) md.setAttribute('content', fill(W.seo?.description || ''));
+  if (W.topbar?.show && W.topbar.text) $('#topbar').classList.remove('hide');
+  for (const sec of ['features', 'steps', 'android', 'pricing', 'faq', 'signup']) if (W[sec] && W[sec].show === false) { $('#' + sec)?.remove(); $$(`[data-sec="${sec}"]`).forEach(e => e.remove()); }
+  if (W.hero && W.hero.show_brochure === false) $('#hero-bro')?.remove();
+  if (W.footer && W.footer.show_links === false) $('#f-links')?.remove();
+  if ($('#feat')) $('#feat').innerHTML = (W.features?.items || []).map(f => `<div class="fc reveal"><div class="ic" style="background:${/^#[0-9a-f]{3,8}$/i.test(f.color) ? f.color : '#2a7fd0'}">${ICON[f.icon] || ICON.check}</div><h3>${esc(fill(f.title))}</h3><p>${esc(fill(f.text))}</p></div>`).join('');
+  if ($('#steplist')) $('#steplist').innerHTML = (W.steps?.items || []).map(x => `<div class="step"><b>${esc(fill(x.title))}</b><p class="muted small">${esc(fill(x.text))}</p></div>`).join('');
+  if ($('#steplist')) $('#steplist').style.gridTemplateColumns = `repeat(${Math.min(4, Math.max(1, (W.steps?.items || []).length))},1fr)`;
+  if ($('#faqlist')) $('#faqlist').innerHTML = (W.faq?.items || []).map(x => `<details class="card reveal" style="padding:16px 20px;box-shadow:none"><summary style="cursor:pointer;font-weight:700;font-size:15px">${esc(fill(x.q))}</summary><p class="muted" style="margin:10px 0 0;white-space:pre-line">${esc(fill(x.a))}</p></details>`).join('');
   try {
-    const cfg = await GET('/api/public/config'); const b = cfg.brand || {};
     $('#b-product').textContent = $('#f-product').textContent = b.product || 'Baybex Printers Manager';
-    $('#b-company').textContent = 'BY ' + (b.company || 'Baybex Digital').toUpperCase(); $('#f-company').textContent = b.company || 'Baybex Digital';
+    $('#b-company').textContent = 'BY ' + (b.company || 'Baybex Digital').toUpperCase();
     $('#c-phone').textContent = b.phone || ''; $('#c-email').textContent = b.email || ''; $('#c-web').textContent = b.website || '';
     $('#f-contact').textContent = [b.phone, b.email, b.website].filter(Boolean).join(' · ');
-    $('#td').textContent = cfg.trial_days; $('#trial-pill').textContent = `${cfg.trial_days}-day free trial · no payment needed`;
-    $('#price-sub').textContent = `Try everything free for ${cfg.trial_days} days, then pick a plan.`;
     const hot = cfg.plans.find(p => p.highlight) || cfg.plans.find(p => p.badge) || cfg.plans[cfg.plans.length - 1];
-    $('#prices').innerHTML = cfg.plans.map(p => `<div class="pc reveal ${p === hot ? 'hot' : ''}">${p.badge ? `<span class="tag orange" style="position:absolute;top:-11px;right:18px">${esc(p.badge)}</span>` : ''}
+    if ($('#prices')) $('#prices').innerHTML = cfg.plans.map(p => `<div class="pc reveal ${p === hot ? 'hot' : ''}">${p.badge ? `<span class="tag orange" style="position:absolute;top:-11px;right:18px">${esc(p.badge)}</span>` : ''}
       ${p.discount_active ? `<span class="tag red" style="position:absolute;top:-11px;left:18px">${esc(p.discount_text)}</span>` : ''}
       <b style="font-size:15px">${esc(p.name)}</b>${p.discount_active ? `<div class="strike" style="font-size:15px">৳${n0(p.original_price)}</div>` : ''}<div class="amt">৳${n0(p.final_price)}</div>
       <div class="muted small">${p.months > 1 ? `≈ ৳${n0(Math.round(p.per_month))} per month · billed every ${p.months} months` : 'per month'}</div>
       ${p.discount_active ? `<div class="small" style="color:var(--danger);font-weight:700">Save ৳${n0(p.discount_amount)}${p.discount_ends ? ' · offer ends ' + fdate(String(p.discount_ends).slice(0, 10)) : ''}</div>` : ''}
       ${p.description ? `<div class="muted small">${esc(p.description)}</div>` : ''}
-      <ul>${p.features.map(f => `<li>${esc(f)}</li>`).join('')}</ul><a class="btn ${p === hot ? '' : 'light'}" href="#signup">${esc(p.button_text || 'Start free trial')}</a></div>`).join('');
-    if (!cfg.signup_open) $('#sf').innerHTML = `<div class="empty">New signups are temporarily closed. Please call ${esc(b.phone || '')}.</div>`;
-  } catch (e) { fail(e); }
-  GET('/api/public/app/version').then(r => { if (r.available) $('#apk-ver').textContent = `Version ${r.version_name} · ${(r.size / 1048576).toFixed(1)} MB`; else { $('#apk-btn').removeAttribute('href'); $('#apk-btn').textContent = 'Android app — coming soon'; } }).catch(() => {});
+      <ul>${p.features.map(f => `<li>${esc(f)}</li>`).join('')}</ul><a class="btn ${p === hot ? '' : 'light'}" href="${$('#signup') ? '#signup' : '/app'}">${esc(p.button_text || 'Start free trial')}</a></div>`).join('');
+    if (!cfg.signup_open && $('#sf')) $('#sf').innerHTML = `<div class="empty">${esc(fill(W.signup?.closed_text || ''))}</div>`;
+  } catch (e) { console.error(e); }
+  GET('/api/public/app/version').then(r => { if (r.available && $('#apk-ver')) $('#apk-ver').textContent = `Version ${r.version_name} · ${(r.size / 1048576).toFixed(1)} MB`; else if ($('#apk-btn')) { $('#apk-btn').removeAttribute('href'); $('#apk-btn').textContent = fill(W.android?.coming_soon || 'Coming soon'); } }).catch(() => {});
   const io = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && e.target.classList.add('in')), { threshold: .12 });
   $$('.reveal').forEach(el => io.observe(el));
-  const sf = $('#sf'); if (!sf.querySelector('[name=slug]')) return;
+  const sf = $('#sf'); if (!sf || !sf.querySelector('[name=slug]')) return;
   const slug = $('[name=slug]', sf), bn = $('[name=business_name]', sf); let touched = false;
   const mk = v => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
   const check = debounce(async () => { const v = slug.value.trim(); if (v.length < 3) return ($('#slug-st').textContent = ''); const r = await GET('/api/public/business/' + encodeURIComponent(v)).catch(() => ({})); $('#slug-st').innerHTML = r.found ? '<span style="color:var(--danger)">✗ Already taken</span>' : '<span style="color:var(--ok)">✓ Available</span>'; }, 300);
