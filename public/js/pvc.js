@@ -191,10 +191,10 @@ App.pages.pvc = {
       { k: 'category', label: 'Media' }, { k: 'width_ft', label: 'Width', f: r => `${+r.width_ft} ft` }, { k: 'roll_length_ft', label: 'Roll length', n: 1, f: r => n0(r.roll_length_ft) + ' ft' },
       { k: 'low_stock_ft', label: 'Low-stock alert', n: 1, f: r => n0(r.low_stock_ft) + ' ft' }, { k: 'default_rate', label: 'Default rate / sq ft', n: 1, f: r => tk(r.default_rate) },
       { k: 'active', label: 'Status', f: r => r.active ? '<span class="tag green">Active</span>' : '<span class="tag gray">Inactive</span>' },
-      { k: 'x', label: '', sort: false, f: r => can('pvc.media') ? `<button class="btn xs ghost" data-ed="${r.id}">Edit</button>` : '' },
+      { k: 'x', label: '', sort: false, f: r => can('pvc.media') ? `<button class="btn xs ghost" data-ed="${r.id}">Edit</button> <button class="btn xs ghost" data-del="${r.id}" style="color:var(--danger)" title="Delete">${ICON.trash.replace('<svg', '<svg width="13"')}</button>` : '' },
     ]);
     if ($('#addm', el)) $('#addm', el).onclick = () => mediaModal(null, () => App.refresh());
-    el.onclick = e => { const b = e.target.closest('[data-ed]'); if (b) mediaModal(App.meta.media.find(m => m.id === +b.dataset.ed), () => App.refresh()); };
+    el.onclick = e => { const b = e.target.closest('[data-ed]'); if (b) mediaModal(App.meta.media.find(m => m.id === +b.dataset.ed), () => App.refresh()); const d = e.target.closest('[data-del]'); if (d) { const md = App.meta.media.find(m => m.id === +d.dataset.del); masterDelete('/api/pvc/media/' + d.dataset.del, md && mediaName(md)); } };
   },
 };
 
@@ -270,20 +270,44 @@ App.pages['pvc-print'] = {
 };
 
 /* ---------------- Ink ---------------- */
+const INK_HEX = { Cyan: '#00aeef', Magenta: '#ec008c', Yellow: '#f5d800', Black: '#231f20', 'Light Cyan': '#7fd6f7', 'Light Magenta': '#f47fc5', White: '#e9edf2', Orange: '#f7941d', Green: '#00a651', Red: '#ed1c24', Blue: '#2e3192', Grey: '#8a8f96', 'Light Black': '#55595f' };
 App.pages.ink = {
-  title: 'Ink Stock — CMYK',
+  title: 'Ink Stock', mode: 'in',
   async render(v) {
     const d = await GET('/api/ink');
-    const col = { Cyan: '#00aeef', Magenta: '#ec008c', Yellow: '#f5d800', Black: '#231f20' };
-    v.innerHTML = `<div class="grid g23 mb"><div class="panel"><div class="head"><div><h2>Add ink</h2><div class="sub">One bottle = one litre · no consumption tracking</div></div></div>
-      <div class="form f2" id="if">${field('Date', dateInput())}${field('Ink colour', `<select name="color">${App.meta.ink_colors.map(c => opt(c, c)).join('')}</select>`)}
-      ${field('Pieces (bottles) <span class="req">*</span>', `<input type="number" step="1" name="pcs" value="1">`, '', 'use negative to correct')}${field('Litres', `<input id="lt" readonly value="1 L">`)}
-      ${field('Remarks', `<input name="remarks">`, 'span2')}</div><div class="actions"><button class="btn" id="is">Save ink entry</button></div></div>
-      <div class="panel"><div class="head"><h2>Balance</h2></div><div class="inks" style="grid-template-columns:1fr 1fr">${d.balance.map(i => `<div class="inkd"><div class="drop"><svg viewBox="0 0 40 50"><path d="M20 2C20 2 4 20 4 32a16 16 0 0 0 32 0C36 20 20 2 20 2z" fill="${col[i.color]}"/><ellipse cx="14" cy="30" rx="3" ry="6" fill="#fff5"/></svg></div><b data-count-to="${i.pcs}">0</b><small>${i.color} · ${n0(i.liters)} L</small></div>`).join('')}</div></div></div>
+    const col = c => d.palette[c] || INK_HEX[c] || '#6b7a8f', per = d.bottle_liters;
+    const M = { in: ['Stock in', 'green', 'Bottles received'], out: ['Use / stock out', 'danger', 'Bottles used'], adj: ['Correction', 'ghost', 'Bottles (+ / −)'] };
+    const mode = this.mode;
+    v.innerHTML = `<div class="grid g23 mb"><div class="panel"><div class="head"><div><h2>Ink entry</h2><div class="sub">1 bottle = ${n0(per)} L · <a href="javascript:void 0" id="bpl">change</a></div></div>
+        <div class="seg" id="imode">${Object.entries(M).filter(([k]) => k !== 'adj' || can('stock.adjust')).map(([k, l]) => `<button type="button" data-m="${k}" class="${k === mode ? 'on' : ''}">${l[0]}</button>`).join('')}</div></div>
+      <div class="form f2" id="if">${field('Date', dateInput())}${field('Ink colour', `<select name="color">${d.colors.map(c => opt(c, c)).join('')}</select>`)}
+      ${field(M[mode][2], `<input type="number" step="1" ${mode === 'adj' ? '' : 'min="0"'} name="pcs" value="${mode === 'out' ? '' : 1}">`, '', mode === 'out' ? 'or enter litres only' : '')}
+      ${field('Litres', `<input type="number" step="any" ${mode === 'adj' ? '' : 'min="0"'} name="liters" value="${mode === 'out' ? '' : per}">`, '', 'auto from bottles · editable')}
+      ${field(mode === 'in' ? 'Supplier / remarks' : mode === 'out' ? 'Used for (machine / job) <span class="req">*</span>' : 'Reason <span class="req">*</span>', `<input name="remarks">`, 'span2')}</div>
+      <div class="actions"><button class="btn ${M[mode][1] === 'ghost' ? '' : M[mode][1]}" id="is">Save ${M[mode][0].toLowerCase()}</button></div></div>
+      <div class="panel"><div class="head"><h2>Balance</h2>${can('ink') ? `<button class="btn xs light" id="addc">${ICON.plus} Add colour</button>` : ''}</div>
+        <div class="inks" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr))">${d.balance.map(i => `<div class="inkd" style="position:relative"><div class="drop"><svg viewBox="0 0 40 50"><path d="M20 2C20 2 4 20 4 32a16 16 0 0 0 32 0C36 20 20 2 20 2z" fill="${esc(col(i.color))}" stroke="#0002"/><ellipse cx="14" cy="30" rx="3" ry="6" fill="#fff5"/></svg></div>
+          <b>${n0(i.liters)} L</b><small style="display:block">${esc(i.color)}</small><small class="muted" style="display:block;font-size:10.5px">used ${n0(i.liters_out)} L</small>
+          ${can('ink') && Math.abs(i.liters) < 1e-9 && d.colors.length > 1 ? `<button class="btn xs ghost" data-rmc="${esc(i.color)}" title="Remove colour" style="position:absolute;top:2px;right:2px;padding:2px 6px">✕</button>` : ''}</div>`).join('')}</div></div></div>
       <div class="panel"><div class="head"><h2>Ink entries</h2></div><div id="itbl"></div></div>`;
-    $('[name=pcs]', v).oninput = e => ($('#lt', v).value = (+e.target.value || 0) + ' L');
+    $$('#imode button', v).forEach(b => b.onclick = () => { this.mode = b.dataset.m; App.refresh(); });
+    const pcs = $('[name=pcs]', v), lt = $('[name=liters]', v);
+    pcs.oninput = () => { lt.value = pcs.value === '' ? '' : Math.round((+pcs.value || 0) * per * 1000) / 1000; };
     const key = uid();
-    $('#is', v).onclick = () => busy($('#is', v), async () => { if (!requireFields(v, ['pcs'])) return; await POST('/api/ink', formData($('#if', v)), { idemKey: key }); toast('Ink stock saved'); App.refresh(); });
-    dataTable($('#itbl', v), d.rows, [{ k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'color', label: 'Colour', f: r => `<span class="dot" style="color:${col[r.color]}"></span> ${r.color}` }, { k: 'pcs', label: 'Pcs', n: 1 }, { k: 'liters', label: 'Litres', n: 1, f: r => n0(r.liters) }, { k: 'remarks', label: 'Remarks' }, { k: 'created_by_name', label: 'By' }]);
+    $('#is', v).onclick = () => busy($('#is', v), async () => {
+      const b = { ...formData($('#if', v)), type: mode };
+      if (mode !== 'in' && !requireFields(v, ['remarks'])) return;
+      await POST('/api/ink', b, { idemKey: key }); toast('Ink entry saved', `${M[mode][0]} · ${b.color}`); App.refresh();
+    });
+    $('#bpl', v).onclick = async () => { const r = await confirmBox('Litres per bottle', 'How many litres does one ink bottle hold?', { ok: 'Save', input: 'Litres per bottle' }); if (r) { try { await PUT('/api/ink/settings', { bottle_liters: r }); toast('Saved'); App.refresh(); } catch (e) { fail(e); } } };
+    if ($('#addc', v)) $('#addc', v).onclick = () => {
+      const m = modal({ title: 'Add ink colour', size: 'narrow', body: `<div class="form" id="cf">${field('Colour name <span class="req">*</span>', `<input name="name" placeholder="e.g. Light Cyan, White, Orange">`)}${field('Swatch', `<input type="color" name="hex" value="#7fd6f7" style="height:42px;padding:3px">`)}</div><div class="actions"><button class="btn" id="cs">Add colour</button></div>` });
+      $('[name=name]', m.el).oninput = e => { const h = INK_HEX[e.target.value.trim()]; if (h) $('[name=hex]', m.el).value = h; };
+      $('#cs', m.el).onclick = () => busy($('#cs', m.el), async () => { if (!requireFields(m.el, ['name'])) return; await POST('/api/ink/colors', formData($('#cf', m.el)), { idem: false }); toast('Colour added'); m.close(); await App.loadMeta(); App.refresh(); });
+    };
+    v.addEventListener('click', async e => { const b = e.target.closest('[data-rmc]'); if (!b) return; if (await confirmBox('Remove ' + b.dataset.rmc + '?', 'Past entries stay in history.', { ok: 'Remove', danger: true })) { try { await api('DELETE', '/api/ink/colors/' + encodeURIComponent(b.dataset.rmc), null, { idem: false }); toast('Colour removed'); await App.loadMeta(); App.refresh(); } catch (er) { fail(er); } } });
+    const TY = { in: '<span class="tag green">In</span>', out: '<span class="tag red">Used</span>', adj: '<span class="tag gray">Correction</span>' };
+    dataTable($('#itbl', v), d.rows, [{ k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'type', label: 'Type', f: r => TY[r.type || 'in'] || '' }, { k: 'color', label: 'Colour', f: r => `<span class="dot" style="color:${esc(col(r.color))}"></span> ${esc(r.color)}` },
+      { k: 'pcs', label: 'Bottles', n: 1 }, { k: 'liters', label: 'Litres', n: 1, f: r => n0(r.liters) }, { k: 'remarks', label: 'Remarks / used for' }, { k: 'created_by_name', label: 'By' }]);
   },
 };

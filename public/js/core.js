@@ -20,6 +20,9 @@ const TYPE_LABEL = { opening: 'Opening Stock', production: 'Production', stock_i
 /* ---------------- icons ---------------- */
 const I = (p, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" ${extra}>${p}</svg>`;
 const ICON = {
+  layers: I('<path d="M12 3 2 8l10 5 10-5z"/><path d="m2 13 10 5 10-5"/><path d="m2 18 10 5 10-5" opacity=".5"/>'),
+  box: I('<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>'),
+  trash: I('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>'),
   dash: I('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
   plate: I('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/>'),
   invoice: I('<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>'),
@@ -172,6 +175,12 @@ const field = (label, inner, cls = '', hint = '') => `<label class="field ${cls}
 const can = (...p) => p.some(x => App.user.perms.includes(x));
 const dateInput = (name = 'date', val) => `<input type="date" name="${name}" value="${val || App.today}" ${can('date.edit') ? '' : 'readonly title="Back-dating requires permission"'}>`;
 
+/** delete a master-list entry (plate, media, item, customer). Never used for transaction records. */
+async function masterDelete(url, name, after) {
+  const ok = await confirmBox('Delete ' + (name || 'this item') + '?', 'If it was never used it is removed completely. If it has past entries, those stay exactly as they are and it is only hidden from lists. Stock must be zero first.', { ok: 'Delete', danger: true });
+  if (!ok) return;
+  try { const r = await api('DELETE', url, null, { idem: false }); toast('Deleted', r.archived ? 'Hidden from lists · history kept' : name || ''); await App.loadMeta(); after ? after() : App.refresh(); } catch (e) { fail(e); }
+}
 /* ---------------- customer autocomplete ---------------- */
 function custPicker(container, { onPick, value = null, allowAdd = true, placeholder = 'Type customer name, phone or company…' } = {}) {
   let picked = value, items = [], idx = -1, list = null;
@@ -277,7 +286,7 @@ function dataTable(el, rows, cols, { search = true, onRow, empty = 'No records f
 const stripTags = h => String(h).replace(/<[^>]+>/g, '');
 const tagFor = s => ({ Paid: 'green', 'Partially Paid': 'orange', Due: 'red', confirmed: 'green', draft: 'gray', cancelled: 'red', Pending: 'orange', Partial: 'purple', Delivered: 'green', active: 'green', OK: 'green', OVERRIDE: 'orange' }[s] || 'gray');
 const statusTag = s => s && s !== '-' ? `<span class="tag ${tagFor(s)}">${esc(s[0].toUpperCase() + s.slice(1))}</span>` : '<span class="muted">—</span>';
-const divTag = d => `<span class="tag ${String(d).toLowerCase() === 'ctp' ? '' : String(d).toLowerCase() === 'pvc' ? 'teal' : 'gray'}">${esc(String(d).toUpperCase())}</span>`;
+const divTag = d => { const k = String(d).toLowerCase(); return `<span class="tag ${k === 'ctp' ? '' : k === 'pvc' ? 'teal' : k === 'gen' ? 'orange' : 'gray'}">${esc(k === 'gen' ? 'GENERAL' : String(d).toUpperCase())}</span>`; };
 
 /* ---------------- count-up & charts ---------------- */
 function countUp(el, to, fmt = n0, ms = 900) {
@@ -350,14 +359,62 @@ function saveBlob(blob, name) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 3000);
 }
-function printHTML(html) {
-  const root = $('#print-root'); root.innerHTML = html;
+/* ---------- print / PDF with paper size + orientation ---------- */
+const PAPER = {
+  A4: [210, 297], A5: [148, 210], A3: [297, 420], A6: [105, 148], Letter: [216, 279], Legal: [216, 356], 'F4 / Folio': [210, 330],
+  '80mm receipt': [80, 0], '58mm receipt': [58, 0],
+};
+const printPrefs = () => { try { return JSON.parse(localStorage.getItem('bbx_print') || '{}'); } catch (e) { return {}; } };
+/** opens a small dialog (size, orientation, margin) and then prints — "Save as PDF" in the print dialog gives a PDF of exactly that size */
+function printHTML(html, opts = {}) {
+  const pref = { size: 'A4', orient: 'portrait', margin: 10, ...printPrefs(), ...opts };
+  const m = modal({
+    title: 'Print / PDF', size: 'narrow', body: `<div class="form f1" id="ppf">
+      ${field('Paper size', `<select name="size">${Object.keys(PAPER).map(k => opt(k, k + (PAPER[k][1] ? ` (${PAPER[k][0]}×${PAPER[k][1]} mm)` : ' (thermal roll)'), pref.size)).join('')}</select>`)}
+      <div class="field">Orientation<div class="seg" id="ppo"><button type="button" data-o="portrait">Portrait</button><button type="button" data-o="landscape">Landscape</button></div></div>
+      ${field('Margin (mm)', `<input type="number" name="margin" min="0" max="30" value="${+pref.margin}">`)}
+      <div class="note" style="margin:0;display:block" id="pph"></div></div>
+      <div class="actions"><button class="btn ghost" data-x>Cancel</button><button class="btn" id="ppgo">${ICON.print} Print / Save PDF</button></div>`,
+  });
+  let orient = pref.orient;
+  const sync = () => {
+    const thermal = !PAPER[$('[name=size]', m.el).value][1];
+    $$('#ppo button', m.el).forEach(b => { b.classList.toggle('on', b.dataset.o === orient); b.disabled = thermal; });
+    $('#pph', m.el).innerHTML = thermal ? 'Thermal receipt: narrow layout, page length fits the content. Choose your receipt printer in the print dialog.' : 'In the print dialog choose your printer, or <b>Save as PDF</b> to download a PDF of this size.';
+  };
+  $$('#ppo button', m.el).forEach(b => b.onclick = () => { orient = b.dataset.o; sync(); });
+  $('[name=size]', m.el).onchange = sync; sync();
+  $('[data-x]', m.el).onclick = m.close;
+  $('#ppgo', m.el).onclick = () => {
+    const size = $('[name=size]', m.el).value, margin = Math.max(0, Math.min(30, +$('[name=margin]', m.el).value || 0));
+    try { localStorage.setItem('bbx_print', JSON.stringify({ size, orient, margin })); } catch (e) {}
+    m.close(); doPrint(html, { size, orient, margin });
+  };
+}
+function doPrint(html, { size = 'A4', orient = 'portrait', margin = 10 } = {}) {
+  const [pw, ph] = PAPER[size] || PAPER.A4, thermal = !ph;
+  const root = $('#print-root');
+  const W = thermal ? pw : (orient === 'landscape' ? ph : pw), contentW = W - 2 * (thermal ? Math.min(margin, 3) : margin);
+  const mm = thermal ? Math.min(margin, 3) : margin;
+  root.innerHTML = `<style id="pg-style">@page{size:${thermal ? `${pw}mm 300mm` : orient === 'landscape' ? `${ph}mm ${pw}mm` : `${pw}mm ${ph}mm`};margin:${mm}mm}
+    #print-root{width:${contentW}mm}
+    ${thermal ? `#print-root .doc{font-size:${pw < 70 ? 9 : 10.5}px;padding:0!important}#print-root .doc *{max-width:100%}#print-root .doc-head{display:block!important}#print-root .doc-head>*{text-align:left!important;margin-bottom:4px}
+      #print-root .doc h1{font-size:${pw < 70 ? 13 : 15}px}#print-root .doc-logo img,#print-root .doc-logo .mark{width:30px!important;height:30px!important}#print-root .meta{display:block!important}#print-root .meta>div{margin:1px 0}
+      #print-root .doc{width:100%!important;min-width:0!important;max-width:none!important}
+      #print-root table{width:100%!important;table-layout:fixed;border-collapse:collapse}
+      #print-root th,#print-root td{padding:1px 2px!important;font-size:${pw < 70 ? 7 : 8.5}px!important;white-space:normal!important;word-break:break-word;overflow-wrap:anywhere;letter-spacing:0!important}
+      #print-root th{text-transform:none!important}#print-root .doc-title{font-size:${pw < 70 ? 9 : 11}px!important;padding:2px 6px!important}#print-root .sign{display:block!important}#print-root .sign>div{margin-top:18px}#print-root .watermark{font-size:28px}
+      #print-root .row{display:block!important}#print-root .sum{width:100%!important;margin-top:6px}` : ''}</style><div class="print-body">${html}</div>`;
   document.body.classList.add('printing');
-  if (IN_APP()) {
-    window.__afterPrint = () => { document.body.classList.remove('printing'); root.innerHTML = ''; };
-    setTimeout(() => window.AndroidBridge.printPage(document.title || 'Document'), 150); return;
+  if (thermal) {   // receipt rolls: make the page exactly as long as the content
+    root.style.display = 'block'; root.style.position = 'absolute'; root.style.left = '-9999px';
+    const hmm = Math.ceil(root.scrollHeight * 25.4 / 96) + 2 * mm + 4;
+    root.removeAttribute('style');
+    $('#pg-style', root).textContent = $('#pg-style', root).textContent.replace(`${pw}mm 300mm`, `${pw}mm ${Math.max(60, hmm)}mm`);
   }
-  setTimeout(() => { window.print(); setTimeout(() => { document.body.classList.remove('printing'); root.innerHTML = ''; }, 300); }, 120);
+  const done = () => { document.body.classList.remove('printing'); root.innerHTML = ''; };
+  if (IN_APP()) { window.__afterPrint = done; setTimeout(() => window.AndroidBridge.printPage(document.title || 'Document'), 150); return; }
+  setTimeout(() => { window.print(); setTimeout(done, 300); }, 120);
 }
 async function exportXlsx(title, meta, sheets) {
   try {
@@ -387,6 +444,7 @@ function companyHeader(sub = '') {
 const NAV = [
   { cap: 'OVERVIEW' },
   { id: 'dashboard', label: 'Dashboard', icon: 'dash', perm: ['dashboard'] },
+  { id: 'general', label: 'General', icon: 'layers', perm: ['general.view', 'general.invoice', 'general.stock', 'general.items'] },
   { cap: 'CTP DIVISION' },
   { id: 'ctp', label: 'CTP Inventory', icon: 'plate', perm: ['ctp.view'] },
   { id: 'ctp-invoices', label: 'CTP Sales / Invoice', icon: 'invoice', perm: ['ctp.invoice'] },
@@ -397,7 +455,7 @@ const NAV = [
   { id: 'pvc-print', label: 'PVC Print Entry', icon: 'print', perm: ['pvc.print'] },
   { id: 'pvc-invoices', label: 'PVC Sales / Invoice', icon: 'invoice', perm: ['pvc.invoice'] },
   { id: 'pvc-challans', label: 'PVC Challan', icon: 'truck', perm: ['pvc.challan'] },
-  { id: 'ink', label: 'Ink Stock (CMYK)', icon: 'ink', perm: ['ink'] },
+  { id: 'ink', label: 'Ink Stock', icon: 'ink', perm: ['ink'] },
   { cap: 'SHARED BUSINESS' },
   { id: 'customers', label: 'Customers', icon: 'users', perm: ['customers.view'] },
   { id: 'accounts', label: 'Accounts & Ledger', icon: 'money', perm: ['accounts.view', 'payments'] },
@@ -406,6 +464,8 @@ const NAV = [
   { id: 'admin', label: 'Users & Settings', icon: 'gear', perm: ['users', 'settings', 'backup', 'audit'] },
   { id: 'android', label: 'App & Downloads', icon: 'phone', perm: ['dashboard'] },
   { id: 'billing', label: 'Subscription', icon: 'key', perm: ['billing'] },
+  { cap: 'INTERNAL' },
+  { id: 'internal', label: 'Internal Inventory', icon: 'box', perm: ['internal'] },
 ];
 const App = {
   user: null, meta: null, today: null, pages: {}, current: null,

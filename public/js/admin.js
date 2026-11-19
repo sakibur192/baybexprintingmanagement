@@ -17,6 +17,7 @@ App.pages.admin = {
       const m = modal({
         title: u ? 'Edit ' + u.full_name : 'Add employee', body: `<div class="form f2" id="uf">
         ${field('Full name <span class="req">*</span>', `<input name="full_name" value="${esc(u?.full_name || '')}">`)}${field('Username <span class="req">*</span>', `<input name="username" value="${esc(u?.username || '')}" ${u ? 'readonly' : ''}>`)}
+        ${field('Nickname', `<input name="nickname" value="${esc(u?.nickname || '')}" placeholder="optional · shown on challans">`)}
         ${field('Mobile', `<input name="phone" value="${esc(u?.phone || '')}">`)}${field('Role', `<select name="role_id">${roles.map(r => opt(r.id, r.name, u?.role_id)).join('')}</select>`)}
         ${field(u ? 'New password' : 'Password <span class="req">*</span>', `<input type="password" name="password" placeholder="${u ? 'leave blank to keep' : 'min 6 characters'}">`)}
         ${u ? `<label class="check" style="align-self:end"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Active (can log in)</label>` : ''}</div>
@@ -30,7 +31,7 @@ App.pages.admin = {
     };
     $('#nu', el).onclick = () => form(null);
     dataTable($('#ut', el), users, [
-      { k: 'full_name', label: 'Name', f: r => `<div class="row" style="gap:10px;flex-wrap:nowrap"><div class="avatar">${esc(r.full_name.split(' ').map(x => x[0]).join('').slice(0, 2))}</div><div><b>${esc(r.full_name)}</b><div class="sub">@${esc(r.username)}</div></div></div>` },
+      { k: 'full_name', label: 'Name', f: r => `<div class="row" style="gap:10px;flex-wrap:nowrap"><div class="avatar">${esc(r.full_name.split(' ').map(x => x[0]).join('').slice(0, 2))}</div><div><b>${esc(r.full_name)}</b>${r.nickname ? ` <span class="tag gray">${esc(r.nickname)}</span>` : ''}<div class="sub">@${esc(r.username)}</div></div></div>` },
       { k: 'role', label: 'Role', f: r => `<span class="tag">${esc(r.role || '')}</span>` }, { k: 'phone', label: 'Mobile' },
       { k: 'last_login', label: 'Last login', f: r => r.last_login ? fdt(r.last_login) : '<span class="muted">never</span>' },
       { k: 'active', label: 'Status', f: r => r.active ? '<span class="tag green">Active</span>' : '<span class="tag gray">Disabled</span>' },

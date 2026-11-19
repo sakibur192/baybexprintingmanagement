@@ -75,26 +75,30 @@ App.pages.customers = {
     const d = await GET('/api/customers/' + id);
     const c = d.customer; $('#title').textContent = c.name;
     v.innerHTML = `<div class="head"><button class="btn ghost" onclick="App.go('customers')">← Customers</button><div class="row">
-      ${can('customers.edit') ? `<button class="btn ghost" id="ed">Edit</button>` : ''}${can('payments') ? `<button class="btn green" id="pay">${ICON.money} Receive payment</button>` : ''}
-      ${can('ctp.invoice') ? `<button class="btn light" id="nci">New CTP invoice</button>` : ''}${can('pvc.invoice') ? `<button class="btn teal" id="npi">New PVC invoice</button>` : ''}</div></div>
+      ${can('customers.edit') ? `<button class="btn ghost" id="cdel" style="color:var(--danger)">${ICON.trash.replace('<svg', '<svg width="14"')} Delete</button><button class="btn ghost" id="ed">Edit</button>` : ''}${can('payments') ? `<button class="btn green" id="pay">${ICON.money} Receive payment</button>` : ''}
+      ${can('ctp.invoice') ? `<button class="btn light" id="nci">New CTP invoice</button>` : ''}${can('pvc.invoice') ? `<button class="btn teal" id="npi">New PVC invoice</button>` : ''}${can('general.invoice') ? `<button class="btn ghost" id="ngi">New General job</button>` : ''}</div></div>
       <div class="panel"><div class="cust-head"><div class="cust-av">${esc(c.name[0])}</div><div style="flex:1"><h2 style="font-size:20px">${esc(c.name)}</h2><div class="sub">${esc([c.company, c.contact_person, c.phone, c.address, c.email].filter(Boolean).join(' · '))}</div>${c.remarks ? `<div class="small mt">${esc(c.remarks)}</div>` : ''}</div>
         <div class="tr"><div class="sub">Current balance</div><div class="big-num" style="color:${c.balance > 0 ? 'var(--danger)' : 'var(--ok)'}">${c.balance < 0 ? tk(-c.balance) + ' adv' : tk(c.balance)}</div></div></div></div>
       <div class="stats stagger"><div class="stat"><small>CTP outstanding</small><b>${tk(d.ctp_due)}</b><div class="foot">${d.ctp.filter(i => i.status === 'confirmed').length} invoices</div></div>
         <div class="stat" style="--c:var(--pvc)"><small>PVC outstanding</small><b>${tk(d.pvc_due)}</b><div class="foot">${d.pvc.filter(i => i.status === 'confirmed').length} invoices</div></div>
+        ${d.gen && d.gen.length ? `<div class="stat" style="--c:#e8833a"><small>General outstanding</small><b>${tk(d.gen_due)}</b><div class="foot">${d.gen.filter(i => i.status === 'confirmed').length} invoices</div></div>` : ''}
         <div class="stat" style="--c:var(--warn)"><small>Opening balance</small><b>${tk(c.opening_balance)}</b></div>
         <div class="stat" style="--c:var(--ok)"><small>Unallocated credit</small><b>${tk(d.unallocated)}</b><div class="foot">${d.payments.filter(p => !p.voided).length} payments</div></div></div>
-      <div class="tabs">${[['ledger', 'Combined Ledger'], ['ctp', 'CTP History'], ['pvc', 'PVC History'], ['pay', 'Payments']].map(([k, l], i) => `<button data-t="${k}" class="${i ? '' : 'on'}">${l}</button>`).join('')}</div><div id="pane"></div>`;
+      <div class="tabs">${[['ledger', 'Combined Ledger'], ['ctp', 'CTP History'], ['pvc', 'PVC History'], ...(d.gen && d.gen.length ? [['gen', 'General History']] : []), ['pay', 'Payments']].map(([k, l], i) => `<button data-t="${k}" class="${i ? '' : 'on'}">${l}</button>`).join('')}</div><div id="pane"></div>`;
     const pane = $('#pane', v);
     const tabs = {
       ledger: async () => ledgerView(pane, c.id),
       ctp: () => { pane.innerHTML = `<div class="grid g32"><div class="panel"><div id="t1"></div></div><div class="panel"><h2>Plate-wise purchase</h2><div class="tbl-wrap mt"><table><thead><tr><th>Plate</th><th class="n">Qty</th><th class="n">Amount</th></tr></thead><tbody>${d.ctpItems.map(i => `<tr><td>${esc(i.name)}</td><td class="n">${i.qty}</td><td class="n">${tk(i.amount)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No CTP purchases</td></tr>'}</tbody></table></div></div></div>`; invTable($('#t1', pane), d.ctp, 'ctp'); },
       pvc: () => { pane.innerHTML = `<div class="grid g32"><div class="panel"><div id="t1"></div></div><div class="panel"><h2>Media-wise purchase</h2><div class="tbl-wrap mt"><table><thead><tr><th>Media</th><th class="n">Sq ft</th><th class="n">Amount</th></tr></thead><tbody>${d.pvcItems.map(i => `<tr><td>${esc(i.category)} ${+i.width_ft} ft</td><td class="n">${n0(i.sqft)}</td><td class="n">${tk(i.amount)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No PVC purchases</td></tr>'}</tbody></table></div></div></div>`; invTable($('#t1', pane), d.pvc, 'pvc'); },
+      gen: () => { pane.innerHTML = '<div class="panel"><div id="t1"></div></div>'; invTable($('#t1', pane), d.gen, 'gen'); },
       pay: () => { pane.innerHTML = '<div class="panel"><div id="t1"></div></div>'; payTable($('#t1', pane), d.payments); },
     };
     const invTable = (el, rows, div) => dataTable(el, rows, [{ k: 'inv_no', label: 'Invoice', f: r => `<b>${esc(r.inv_no || 'Draft #' + r.id)}</b>` }, { k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'grand_total', label: 'Total', n: 1, f: r => tk(r.grand_total) }, { k: 'paid', label: 'Paid', n: 1, f: r => tk(r.paid) }, { k: 'due', label: 'Due', n: 1, f: r => tk(r.due) }, { k: 'status', label: 'Status', f: r => statusTag(r.status) }, { k: 'created_by_name', label: 'Created by' }], { onRow: r => App.go(`${div}-invoices/${r.id}`) });
     $$('[data-t]', v).forEach(b => b.onclick = () => { $$('[data-t]', v).forEach(x => x.classList.toggle('on', x === b)); pane.classList.remove('tabpane'); void pane.offsetWidth; pane.classList.add('tabpane'); tabs[b.dataset.t](); });
     tabs.ledger();
     if ($('#ed', v)) $('#ed', v).onclick = () => customerModal(c, () => App.refresh());
+    if ($('#cdel', v)) $('#cdel', v).onclick = () => masterDelete('/api/customers/' + c.id, c.name, () => App.go('customers'));
+    if ($('#ngi', v)) $('#ngi', v).onclick = () => { App.pages.general.prefill = { customer: c }; App.go('general/new'); };
     if ($('#pay', v)) $('#pay', v).onclick = () => paymentModal({ customer: c }, () => App.refresh());
     if ($('#nci', v)) $('#nci', v).onclick = () => { App.pages['ctp-invoices'].prefill = { customer: c }; App.go('ctp-invoices/new'); };
     if ($('#npi', v)) $('#npi', v).onclick = () => { App.pages['pvc-invoices'].prefill = { customer: c }; App.go('pvc-invoices/new'); };
@@ -118,7 +122,7 @@ async function ledgerView(el, customerId, f = {}) {
   const from = f.from || '', to = f.to || '', division = f.division || 'all';
   const d = await GET(`/api/customers/${customerId}/ledger`, { from, to, division });
   el.innerHTML = `<div class="panel"><div class="head"><div><h2>Customer ledger — ${esc(d.customer.name)}</h2><div class="sub">Combined CTP + PVC · debit = invoice, credit = payment / cancellation</div></div>
-    <div class="row"><div class="seg" id="ldv">${['all', 'ctp', 'pvc'].map(x => `<button type="button" data-d="${x}" class="${x === division ? 'on' : ''}">${x === 'all' ? 'All' : x.toUpperCase()}</button>`).join('')}</div>
+    <div class="row"><div class="seg" id="ldv">${['all', 'ctp', 'pvc', 'gen'].map(x => `<button type="button" data-d="${x}" class="${x === division ? 'on' : ''}">${x === 'all' ? 'All' : x === 'gen' ? 'General' : x.toUpperCase()}</button>`).join('')}</div>
     <input type="date" class="inp" id="lf" value="${from}" style="width:150px"><input type="date" class="inp" id="lt" value="${to}" style="width:150px"><button class="btn sm" id="lgo">Apply</button><button class="btn sm ghost" id="lpr">${ICON.print}</button><button class="btn sm ghost" id="lx">${ICON.excel}</button></div></div>
     <div class="tbl-wrap"><table id="ledt"><thead><tr><th>Date</th><th>Division</th><th>Type</th><th>Ref</th><th>Narration</th><th class="n">Debit</th><th class="n">Credit</th><th class="n">Balance</th></tr></thead><tbody>
     <tr><td colspan="7"><b>Opening balance</b></td><td class="n"><b>${tk(d.opening)}</b></td></tr>

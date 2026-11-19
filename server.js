@@ -17,7 +17,7 @@ const QRCode = require('qrcode');
 /* ============================== CONFIG ============================== */
 const CONFIG = {
   port: 3000,
-  db: { host: '201.18.212.48', port: 5446, user: 'postgres', password: 'nH19h4MZBaicpbRDQ2vYt5LfMDNQHcfHpsEI9VMmli6Y5bZtYJSvx35mPASU6NuG', database: 'postgres', max: 20 },
+    db: { host: '201.18.212.48', port: 5446, user: 'postgres', password: 'nH19h4MZBaicpbRDQ2vYt5LfMDNQHcfHpsEI9VMmli6Y5bZtYJSvx35mPASU6NuG', database: 'postgres', max: 20 },
   sessionDays: 7,
   timezone: 'Asia/Dhaka',
   superAdmin: { username: 'superadmin', password: 'baybex@123', full_name: 'Baybex Super Admin' },   // created on first start only
@@ -66,7 +66,9 @@ const PERMS = {
   'ctp.invoice': 'CTP invoices', 'ctp.challan': 'CTP challans', 'ctp.rates': 'Change CTP rates',
   'pvc.view': 'View PVC stock', 'pvc.stockin': 'PVC opening / stock in', 'pvc.print': 'PVC print entry',
   'pvc.wastage': 'PVC wastage', 'pvc.invoice': 'PVC invoices', 'pvc.challan': 'PVC challans', 'pvc.media': 'Manage media master',
-  'ink': 'Ink stock', 'customers.view': 'View customers', 'customers.edit': 'Add / edit customers',
+  'ink': 'Ink stock',
+  'general.view': 'View General section', 'general.invoice': 'General job billing (ID card, lamination, binding…)', 'general.stock': 'Lamination film & paper stock entries',
+  'general.items': 'Manage general items & job types', 'internal': 'Internal inventory (solvent, wash, developer…)', 'customers.view': 'View customers', 'customers.edit': 'Add / edit customers',
   'payments': 'Record payments', 'expenses': 'Business expenses', 'accounts.view': 'Accounts & ledger',
   'reports': 'Reports', 'reports.employee': 'Employee-wise reports', 'invoice.cancel': 'Cancel confirmed invoices',
   'stock.adjust': 'Stock adjustments / void entries', 'challan.standalone': 'Standalone challan (no invoice)',
@@ -76,10 +78,10 @@ const PERMS = {
 const ALL = Object.keys(PERMS);
 const DEFAULT_ROLES = {
   'Admin': ALL,
-  'Manager': ['dashboard', 'ctp.view', 'pvc.view', 'ink', 'customers.view', 'accounts.view', 'reports', 'reports.employee', 'audit'],
-  'Accountant': ['dashboard', 'ctp.view', 'pvc.view', 'ctp.invoice', 'pvc.invoice', 'customers.view', 'customers.edit', 'payments', 'expenses', 'accounts.view', 'reports'],
-  'CTP Operator': ['dashboard', 'ctp.view', 'ctp.production', 'ctp.ownuse', 'ctp.invoice', 'ctp.challan', 'customers.view', 'customers.edit'],
-  'PVC Operator': ['dashboard', 'pvc.view', 'pvc.stockin', 'pvc.print', 'pvc.wastage', 'pvc.invoice', 'pvc.challan', 'ink', 'customers.view', 'customers.edit'],
+  'Manager': ['dashboard', 'ctp.view', 'pvc.view', 'ink', 'general.view', 'internal', 'customers.view', 'accounts.view', 'reports', 'reports.employee', 'audit'],
+  'Accountant': ['dashboard', 'ctp.view', 'pvc.view', 'ctp.invoice', 'pvc.invoice', 'customers.view', 'customers.edit', 'payments', 'expenses', 'accounts.view', 'reports', 'general.view', 'general.invoice'],
+  'CTP Operator': ['dashboard', 'ctp.view', 'ctp.production', 'ctp.ownuse', 'ctp.invoice', 'ctp.challan', 'customers.view', 'customers.edit', 'internal'],
+  'PVC Operator': ['dashboard', 'pvc.view', 'pvc.stockin', 'pvc.print', 'pvc.wastage', 'pvc.invoice', 'pvc.challan', 'ink', 'customers.view', 'customers.edit', 'internal', 'general.view', 'general.invoice', 'general.stock'],
   'Designer': ['dashboard', 'pvc.view', 'pvc.print', 'pvc.invoice', 'ctp.view', 'ctp.invoice', 'customers.view', 'customers.edit'],
 };
 /* tenant-editable dropdown lists (defaults) */
@@ -88,6 +90,13 @@ const DEFAULT_LISTS = {
   wastage_reasons: ['Cutting', 'Printing Error', 'Machine Error', 'Design Error', 'Media Damage', 'Other'],
   expense_categories: ['Rent', 'Salary', 'Electricity', 'Transport', 'Machine Maintenance', 'Raw Material', 'Chemical', 'Entertainment', 'Office', 'Other'],
   ink_colors: ['Cyan', 'Magenta', 'Yellow', 'Black'],
+  lamination_machines: ['PVC Lamination Machine', 'Normal Lamination Machine'],
+  lamination_finishes: ['Glossy', 'Matte', 'Velvet'],
+  paper_sizes: ['Demy 18', 'F4 (Legal)', '1/16 Demy', 'A4', 'A5', 'Double Demy'],
+  paper_types: ['Offset', 'Duplicate (2 part)', 'Triplicate (3 part)', 'Auto carbon', 'Art paper', 'Art card', 'Newsprint', 'Sticker paper'],
+  paper_colors: ['White', 'Green', 'Yellow', 'Blue', 'Pink', 'Red', 'Purple', 'Brown', 'Orange', 'Cream'],
+  paper_units: ['Ream', 'Packet', 'Sheet', 'Dista'],
+  internal_units: ['Ltr', 'Pcs', 'Kg', 'Box', 'Roll', 'Packet', 'Bottle', 'Set'],
 };
 async function lists() {
   const r = await q1(`SELECT value FROM settings WHERE key='lists'`);
@@ -166,10 +175,17 @@ CREATE TABLE IF NOT EXISTS pvc_invoice_items(id SERIAL PRIMARY KEY, invoice_id I
   print_entry_id INT REFERENCES pvc_print_entries(id), description TEXT);
 ALTER TABLE pvc_invoice_items ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'sqft';
 ALTER TABLE pvc_invoice_items ALTER COLUMN media_id DROP NOT NULL;
+ALTER TABLE ctp_products ADD COLUMN IF NOT EXISTS deleted BOOLEAN DEFAULT false;
+ALTER TABLE pvc_media ADD COLUMN IF NOT EXISTS deleted BOOLEAN DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname TEXT;
+ALTER TABLE pvc_ink_stock ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'in';
+ALTER TABLE pvc_ink_stock ALTER COLUMN liters TYPE NUMERIC(12,3);
 
 CREATE TABLE IF NOT EXISTS challans(id SERIAL PRIMARY KEY, division TEXT NOT NULL CHECK (division IN ('ctp','pvc')), dc_no TEXT UNIQUE NOT NULL, date DATE NOT NULL,
   invoice_id INT, customer_id INT REFERENCES customers(id), receiver TEXT, carried_by TEXT, issuing_authority TEXT, remarks TEXT, standalone BOOLEAN DEFAULT false,
   status TEXT DEFAULT 'active', created_by INT, created_by_name TEXT, created_role TEXT, created_at TIMESTAMPTZ DEFAULT now());
+ALTER TABLE challans ADD COLUMN IF NOT EXISTS prepared_by TEXT;
+ALTER TABLE challans ADD COLUMN IF NOT EXISTS prepared_nick TEXT;
 CREATE TABLE IF NOT EXISTS challan_items(id SERIAL PRIMARY KEY, challan_id INT NOT NULL REFERENCES challans(id) ON DELETE CASCADE, invoice_item_id INT,
   product_id INT, media_id INT, qty NUMERIC(12,2) NOT NULL, length_ft NUMERIC(12,2), sqft NUMERIC(12,2), description TEXT, cost NUMERIC(14,2));
 
@@ -181,10 +197,47 @@ CREATE TABLE IF NOT EXISTS payment_allocations(id SERIAL PRIMARY KEY, payment_id
   amount NUMERIC(14,2) NOT NULL, created_by INT, created_by_name TEXT, created_at TIMESTAMPTZ DEFAULT now());
 CREATE INDEX IF NOT EXISTS ix_alloc ON payment_allocations(division, invoice_id);
 
+/* General section (lamination film, paper stock) + Internal inventory: one item master, one movement ledger */
+CREATE TABLE IF NOT EXISTS gen_items(id SERIAL PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('lamination','paper','internal')), name TEXT NOT NULL, unit TEXT NOT NULL DEFAULT 'Pcs',
+  size TEXT, gsm TEXT, paper_type TEXT, color TEXT, machine TEXT, finish TEXT, width_in NUMERIC(8,2), roll_length NUMERIC(10,2), low_stock NUMERIC(14,3) DEFAULT 0, rate NUMERIC(12,2) DEFAULT 0,
+  remarks TEXT, sort INT DEFAULT 0, active BOOLEAN DEFAULT true, deleted BOOLEAN DEFAULT false,
+  created_by INT, created_by_name TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_by_name TEXT, updated_at TIMESTAMPTZ);
+CREATE INDEX IF NOT EXISTS ix_genitems ON gen_items(kind);
+CREATE TABLE IF NOT EXISTS gen_moves(id SERIAL PRIMARY KEY, date DATE NOT NULL, item_id INT NOT NULL REFERENCES gen_items(id),
+  type TEXT NOT NULL CHECK (type IN ('opening','stock_in','use','job','wastage','adj_in','adj_out')), qty NUMERIC(14,3) NOT NULL,
+  purpose TEXT, party TEXT, ref_type TEXT, ref_id INT, ref_no TEXT, remarks TEXT, is_reversal BOOLEAN DEFAULT false, reversal_of INT, voided BOOLEAN DEFAULT false, void_reason TEXT,
+  created_by INT, created_by_name TEXT, created_role TEXT, created_at TIMESTAMPTZ DEFAULT now());
+CREATE INDEX IF NOT EXISTS ix_genmv ON gen_moves(item_id, date);
+CREATE TABLE IF NOT EXISTS gen_invoices(id SERIAL PRIMARY KEY, inv_no TEXT UNIQUE, date DATE NOT NULL, customer_id INT NOT NULL REFERENCES customers(id),
+  status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','cancelled')),
+  subtotal NUMERIC(14,2) DEFAULT 0, discount NUMERIC(14,2) DEFAULT 0, grand_total NUMERIC(14,2) DEFAULT 0, payment_method TEXT, job_no TEXT, delivery_date DATE, remarks TEXT,
+  created_by INT, created_by_name TEXT, created_role TEXT, created_at TIMESTAMPTZ DEFAULT now(),
+  cancelled_by INT, cancelled_by_name TEXT, cancelled_at TIMESTAMPTZ, cancel_reason TEXT);
+CREATE INDEX IF NOT EXISTS ix_geninv ON gen_invoices(date, status);
+CREATE TABLE IF NOT EXISTS gen_invoice_items(id SERIAL PRIMARY KEY, invoice_id INT NOT NULL REFERENCES gen_invoices(id) ON DELETE CASCADE,
+  job_type TEXT NOT NULL, description TEXT, w NUMERIC(10,2), l NUMERIC(10,2), colours INT, qty NUMERIC(14,2) NOT NULL, price_unit TEXT NOT NULL, billed_qty NUMERIC(14,2),
+  rate NUMERIC(12,4) NOT NULL, line_total NUMERIC(14,2) NOT NULL, film_item_id INT REFERENCES gen_items(id), film_used NUMERIC(14,3), paper_item_id INT REFERENCES gen_items(id), paper_qty NUMERIC(14,3));
+
 CREATE TABLE IF NOT EXISTS expenses(id SERIAL PRIMARY KEY, date DATE NOT NULL, category TEXT NOT NULL, amount NUMERIC(14,2) NOT NULL, method TEXT, description TEXT, division TEXT DEFAULT 'common',
   voided BOOLEAN DEFAULT false, created_by INT, created_by_name TEXT, created_role TEXT, created_at TIMESTAMPTZ DEFAULT now());
 `;
 
+/* General section job types — tenant editable (name, how it is priced, default rate, minimum qty, uses film/paper) */
+const PRICE_UNITS = { pc: 'per piece', sqin: 'per sq inch', sqft: 'per sq ft', book: 'per book', set: 'per set', h100: 'per 100 pcs', k1000: 'per 1000 pcs', job: 'per job' };
+const DEFAULT_GENERAL = {
+  job_types: [
+    { name: 'PVC ID Card', unit: 'pc', rate: 0, min_qty: 0, film: false, paper: false },
+    { name: 'Lamination', unit: 'sqin', rate: 0, min_qty: 0, film: true, paper: false },
+    { name: 'Memo / Receipt Book', unit: 'book', rate: 0, min_qty: 0, film: false, paper: true },
+    { name: 'Binding', unit: 'book', rate: 0, min_qty: 0, film: false, paper: true },
+    { name: 'Visiting Card', unit: 'k1000', rate: 0, min_qty: 1000, film: false, paper: true },
+    { name: 'Poster / Leaflet', unit: 'pc', rate: 0, min_qty: 0, film: false, paper: true },
+    { name: 'Cutting', unit: 'job', rate: 0, min_qty: 0, film: false, paper: false },
+    { name: 'Other', unit: 'pc', rate: 0, min_qty: 0, film: false, paper: false },
+  ],
+  ink_bottle_liters: 1,
+  ink_palette: {},
+};
 const SEED_PRODUCTS = [
   ['Mini Plate', 'Mini', '400 x 510 mm', '14.75" x 20.07"', 260, 1],
   ['Short Demy Plate', 'Short Kord', '508 x 570 mm', '20.00" x 22.44"', 0, 2],
@@ -390,12 +443,16 @@ async function migrateTenant(t, seed) {
       for (const [cat, widths] of SEED_MEDIA) for (const w of widths)
         await c.query(`INSERT INTO pvc_media(category, width_ft, sort) VALUES($1,$2,$3) ON CONFLICT(category, width_ft) DO NOTHING`, [cat, w, ++s]);
     }
-    for (const [k, prefix] of [['ctp_inv', 'CTP-INV-'], ['pvc_inv', 'PVC-INV-'], ['ctp_dc', 'CTP-DC-'], ['pvc_dc', 'PVC-DC-'], ['receipt', 'MR-']])
+    if (!(await c.query(`SELECT 1 FROM gen_items WHERE kind='internal' LIMIT 1`)).rowCount)
+      for (const [i, [name, unit, low]] of [['PVC Solvent', 'Ltr', 5], ['CTP Wash', 'Ltr', 5], ['CTP Developer', 'Ltr', 5], ['Filter Paper', 'Pcs', 10]].entries())
+        await c.query(`INSERT INTO gen_items(kind,name,unit,low_stock,sort) VALUES('internal',$1,$2,$3,$4)`, [name, unit, low, i + 1]);
+    for (const [k, prefix] of [['ctp_inv', 'CTP-INV-'], ['pvc_inv', 'PVC-INV-'], ['gen_inv', 'GEN-INV-'], ['ctp_dc', 'CTP-DC-'], ['pvc_dc', 'PVC-DC-'], ['receipt', 'MR-']])
       await c.query(`INSERT INTO invoice_sequences(key, prefix) VALUES($1,$2) ON CONFLICT DO NOTHING`, [k, prefix]);
     const defaults = { ...DEFAULT_SETTINGS, lists: DEFAULT_LISTS };
     if (seed) defaults.company = { ...DEFAULT_SETTINGS.company, ...seed.company };
     for (const [k, v] of Object.entries(defaults))
       await c.query(`INSERT INTO settings(key, value) VALUES($1,$2) ON CONFLICT DO NOTHING`, [k, JSON.stringify(v)]);
+    await c.query(`INSERT INTO settings(key, value) VALUES('general',$1) ON CONFLICT DO NOTHING`, [JSON.stringify(DEFAULT_GENERAL)]);
     if (seed?.admin) {
       const role = (await c.query(`SELECT id FROM roles WHERE name='Admin'`)).rows[0];
       await c.query(`INSERT INTO users(username, full_name, phone, password_hash, role_id) VALUES($1,$2,$3,$4,$5)`,
@@ -523,7 +580,7 @@ const auth = (req, res, next) => {
   })().then(ses => {
     if (!ses) return next(new AppError('Please log in', 401));
     inTenant(ses.tenant, () => {
-      q1(`SELECT u.id,u.username,u.full_name,u.phone,u.active,r.name role_name,r.permissions perms FROM users u LEFT JOIN roles r ON r.id=u.role_id WHERE u.id=$1`, [ses.user_id])
+      q1(`SELECT u.id,u.username,u.full_name,u.nickname,u.phone,u.active,r.name role_name,r.permissions perms FROM users u LEFT JOIN roles r ON r.id=u.role_id WHERE u.id=$1`, [ses.user_id])
         .then(u => {
           if (!u || !u.active) return next(new AppError('Please log in', 401));
           u.perms = u.perms || [];
@@ -594,8 +651,8 @@ app.post('/api/me/password', wrap(async (req, res) => {
 
 app.get('/api/meta', wrap(async (req, res) => {
   const [products, media, settings, roles, users] = await Promise.all([
-    q(`SELECT * FROM ctp_products ORDER BY sort, id`),
-    q(`SELECT * FROM pvc_media ORDER BY category, width_ft`),
+    q(`SELECT * FROM ctp_products WHERE NOT deleted ORDER BY sort, id`),
+    q(`SELECT * FROM pvc_media WHERE NOT deleted ORDER BY category, width_ft`),
     q(`SELECT key, value FROM settings`),
     q(`SELECT id, name FROM roles ORDER BY id`),
     q(`SELECT id, full_name, username FROM users ORDER BY full_name`),
@@ -611,6 +668,7 @@ const CUST_BAL = `
   c.opening_balance
   + COALESCE((SELECT SUM(grand_total) FROM ctp_invoices WHERE customer_id=c.id AND status='confirmed'),0)
   + COALESCE((SELECT SUM(grand_total) FROM pvc_invoices WHERE customer_id=c.id AND status='confirmed'),0)
+  + COALESCE((SELECT SUM(grand_total) FROM gen_invoices WHERE customer_id=c.id AND status='confirmed'),0)
   - COALESCE((SELECT SUM(amount) FROM payments WHERE customer_id=c.id AND NOT voided),0)`;
 
 app.get('/api/customers/search', can('customers.view', 'ctp.invoice', 'pvc.invoice', 'pvc.print', 'payments'), wrap(async (req, res) => {
@@ -661,6 +719,17 @@ app.put('/api/customers/:id', can('customers.edit'), wrap(async (req, res) => {
   });
   res.json(out);
 }));
+app.delete('/api/customers/:id', can('customers.edit'), wrap(async (req, res) => {
+  res.json(await tx(async c => {
+    const cu = (await c.query(`SELECT * FROM customers WHERE id=$1 FOR UPDATE`, [req.params.id])).rows[0]; if (!cu) bad('Customer not found', 404);
+    const used = (await c.query(`SELECT 'invoice' k FROM ctp_invoices WHERE customer_id=$1 UNION ALL SELECT 'invoice' FROM pvc_invoices WHERE customer_id=$1 UNION ALL SELECT 'invoice' FROM gen_invoices WHERE customer_id=$1
+      UNION ALL SELECT 'payment' FROM payments WHERE customer_id=$1 UNION ALL SELECT 'challan' FROM challans WHERE customer_id=$1 UNION ALL SELECT 'print entry' FROM pvc_print_entries WHERE customer_id=$1 LIMIT 1`, [cu.id])).rows[0];
+    if (used) bad(`${cu.name} has ${used.k}s on record, so it cannot be deleted (that would break the ledger). Untick "Active" to hide this customer instead.`, 409);
+    await c.query(`DELETE FROM customers WHERE id=$1`, [cu.id]);
+    await audit(c, req.user, 'delete', 'customer', cu.id, { name: cu.name, phone: cu.phone });
+    return { ok: true };
+  }));
+}));
 app.get('/api/customers/:id', can('customers.view'), wrap(async (req, res) => {
   const id = +req.params.id;
   const cust = await q1(`SELECT c.*, (${CUST_BAL}) balance FROM customers c WHERE id=$1`, [id]);
@@ -677,7 +746,9 @@ app.get('/api/customers/:id', can('customers.view'), wrap(async (req, res) => {
   ]);
   for (const l of [ctp, pvc]) for (const i of l) i.due = i.status === 'confirmed' ? r2(i.grand_total - i.paid) : 0;
   const unallocated = r2(payments.filter(p => !p.voided).reduce((s, p) => s + p.amount - p.allocated, 0));
-  res.json({ customer: cust, ctp, pvc, payments, ctpItems, pvcItems, unallocated,
+  const gen = await q(`SELECT i.*, ${PAID_SQL('gen')} paid FROM gen_invoices i WHERE customer_id=$1 ORDER BY date DESC, id DESC LIMIT 300`, [id]);
+  for (const i of gen) i.due = i.status === 'confirmed' ? r2(i.grand_total - i.paid) : 0;
+  res.json({ customer: cust, ctp, pvc, gen, gen_due: r2(gen.reduce((s, i) => s + i.due, 0)), payments, ctpItems, pvcItems, unallocated,
     ctp_due: r2(ctp.reduce((s, i) => s + i.due, 0)), pvc_due: r2(pvc.reduce((s, i) => s + i.due, 0)) });
 }));
 app.get('/api/customers/:id/open-invoices', can('payments', 'customers.view'), wrap(async (req, res) => {
@@ -686,7 +757,10 @@ app.get('/api/customers/:id/open-invoices', can('payments', 'customers.view'), w
       FROM ctp_invoices i WHERE customer_id=$1 AND status='confirmed'
     UNION ALL
     SELECT 'pvc', i.id, i.inv_no, i.date, i.grand_total, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='pvc' AND a.invoice_id=i.id AND NOT p.voided),0)
-      FROM pvc_invoices i WHERE customer_id=$1 AND status='confirmed') x WHERE due > 0.004 ORDER BY date, inv_no`, [req.params.id]);
+      FROM pvc_invoices i WHERE customer_id=$1 AND status='confirmed'
+    UNION ALL
+    SELECT 'gen', i.id, i.inv_no, i.date, i.grand_total, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='gen' AND a.invoice_id=i.id AND NOT p.voided),0)
+      FROM gen_invoices i WHERE customer_id=$1 AND status='confirmed') x WHERE due > 0.004 ORDER BY date, inv_no`, [req.params.id]);
   res.json(rows);
 }));
 app.get('/api/customers/:id/ledger', can('accounts.view', 'customers.view'), wrap(async (req, res) => {
@@ -699,6 +773,8 @@ app.get('/api/customers/:id/ledger', can('accounts.view', 'customers.view'), wra
     UNION ALL SELECT cancelled_at::date, cancelled_at, 'ctp', 'CTP Invoice Cancelled', inv_no, COALESCE(cancel_reason,''), 0, grand_total, id FROM ctp_invoices WHERE customer_id=$1 AND status='cancelled'
     UNION ALL SELECT date, created_at, 'pvc', 'PVC Invoice', inv_no, COALESCE(remarks,''), grand_total, 0, id FROM pvc_invoices WHERE customer_id=$1 AND status IN ('confirmed','cancelled')
     UNION ALL SELECT cancelled_at::date, cancelled_at, 'pvc', 'PVC Invoice Cancelled', inv_no, COALESCE(cancel_reason,''), 0, grand_total, id FROM pvc_invoices WHERE customer_id=$1 AND status='cancelled'
+    UNION ALL SELECT date, created_at, 'gen', 'General Invoice', inv_no, COALESCE(remarks,''), grand_total, 0, id FROM gen_invoices WHERE customer_id=$1 AND status IN ('confirmed','cancelled')
+    UNION ALL SELECT cancelled_at::date, cancelled_at, 'gen', 'General Invoice Cancelled', inv_no, COALESCE(cancel_reason,''), 0, grand_total, id FROM gen_invoices WHERE customer_id=$1 AND status='cancelled'
     UNION ALL SELECT p.date, p.created_at, COALESCE((SELECT CASE WHEN COUNT(DISTINCT division)=1 THEN MIN(division) ELSE 'common' END FROM payment_allocations WHERE payment_id=p.id), p.division),
       'Payment', p.receipt_no, p.method || COALESCE(' · '||p.reference,'') || COALESCE(' · '||p.remarks,''), 0, p.amount, p.id FROM payments p WHERE customer_id=$1 AND NOT voided
     ORDER BY date, ts`, [id]);
@@ -805,10 +881,33 @@ app.put('/api/ctp/rates', can('ctp.rates'), wrap(async (req, res) => {
     return { ok: true };
   }));
 }));
+app.delete('/api/ctp/products/:id', can('ctp.rates'), wrap(async (req, res) => {
+  res.json(await tx(async c => {
+    const p = (await c.query(`SELECT * FROM ctp_products WHERE id=$1 AND NOT deleted FOR UPDATE`, [req.params.id])).rows[0]; if (!p) bad('Plate not found', 404);
+    const used = (await c.query(`SELECT 1 FROM ctp_stock_movements WHERE product_id=$1 UNION ALL SELECT 1 FROM ctp_invoice_items WHERE product_id=$1 UNION ALL SELECT 1 FROM challan_items WHERE product_id=$1 LIMIT 1`, [p.id])).rowCount;
+    if (used) {
+      const bal = await ctpBalance(c, p.id);
+      if (bal !== 0) bad(`${p.name} still has ${bal} pcs in stock. Bring it to zero with a stock adjustment, then delete.`);
+      await c.query(`UPDATE ctp_products SET deleted=true, active=false WHERE id=$1`, [p.id]);   // keep history; hidden from every list
+    } else {
+      await c.query(`DELETE FROM ctp_prices WHERE product_id=$1`, [p.id]);
+      await c.query(`DELETE FROM ctp_products WHERE id=$1`, [p.id]);
+    }
+    await audit(c, req.user, 'delete', 'ctp_product', p.id, { name: p.name, kept_history: !!used });
+    return { ok: true, archived: !!used };
+  }));
+}));
 app.post('/api/ctp/products', can('ctp.rates'), wrap(async (req, res) => {
   const b = req.body; const name = str(b.name, 80); if (!name) bad('Plate name is required');
   res.json(await tx(async c => {
-    if ((await c.query(`SELECT 1 FROM ctp_products WHERE lower(name)=lower($1)`, [name])).rowCount) bad('A plate with this name already exists');
+    const ex = (await c.query(`SELECT * FROM ctp_products WHERE lower(name)=lower($1)`, [name])).rows[0];
+    if (ex && !ex.deleted) bad('A plate with this name already exists');
+    if (ex) {   // same name was deleted before: bring it back (its old history stays linked)
+      const r = (await c.query(`UPDATE ctp_products SET deleted=false, name=$1, alias=$2, size_mm=$3, size_in=$4, unit=$5, current_rate=$6, low_stock=$7, sort=$8, active=$9 WHERE id=$10 RETURNING *`,
+        [name, str(b.alias), str(b.size_mm), str(b.size_in), str(b.unit) || 'Pcs', r2(b.current_rate), +b.low_stock || 20, +b.sort || 99, b.active !== false, ex.id])).rows[0];
+      await audit(c, req.user, 'restore', 'ctp_product', r.id, r);
+      return r;
+    }
     const r = (await c.query(`INSERT INTO ctp_products(name,alias,size_mm,size_in,unit,current_rate,low_stock,sort,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [name, str(b.alias), str(b.size_mm), str(b.size_in), str(b.unit) || 'Pcs', r2(b.current_rate), +b.low_stock || 20, +b.sort || 99, b.active !== false])).rows[0];
     await c.query(`INSERT INTO ctp_prices(product_id,rate,old_rate,effective_from,created_by,created_by_name) VALUES($1,$2,NULL,$3,$4,$5)`, [r.id, r.current_rate, today(), req.user.id, req.user.full_name]);
@@ -820,7 +919,7 @@ app.put('/api/ctp/products/:id', can('ctp.rates'), wrap(async (req, res) => {
   const b = req.body; const name = str(b.name, 80); if (!name) bad('Plate name is required');
   res.json(await tx(async c => {
     const p = (await c.query(`SELECT * FROM ctp_products WHERE id=$1 FOR UPDATE`, [req.params.id])).rows[0]; if (!p) bad('Plate not found', 404);
-    if ((await c.query(`SELECT 1 FROM ctp_products WHERE lower(name)=lower($1) AND id<>$2`, [name, p.id])).rowCount) bad('Another plate has this name');
+    if ((await c.query(`SELECT 1 FROM ctp_products WHERE lower(name)=lower($1) AND id<>$2`, [name, p.id])).rowCount) bad('Another plate (or a deleted plate) has this name');
     const rate = b.current_rate === undefined || b.current_rate === '' ? +p.current_rate : r2(b.current_rate);
     const r = (await c.query(`UPDATE ctp_products SET name=$1,alias=$2,size_mm=$3,size_in=$4,unit=$5,current_rate=$6,low_stock=$7,sort=$8,active=$9 WHERE id=$10 RETURNING *`,
       [name, str(b.alias), str(b.size_mm), str(b.size_in), str(b.unit) || 'Pcs', rate, b.low_stock === '' || b.low_stock == null ? p.low_stock : +b.low_stock, b.sort === '' || b.sort == null ? p.sort : +b.sort, b.active !== false, p.id])).rows[0];
@@ -833,13 +932,26 @@ app.get('/api/ctp/rates/history', can('ctp.view', 'ctp.rates'), wrap(async (req,
   res.json(await q(`SELECT h.*, p.name FROM ctp_prices h JOIN ctp_products p ON p.id=h.product_id ORDER BY h.created_at DESC LIMIT 300`))));
 
 /* ============================== PVC ============================== */
-app.get('/api/pvc/media', can('pvc.view', 'pvc.invoice', 'pvc.print', 'dashboard'), wrap(async (req, res) => res.json(await q(`SELECT * FROM pvc_media ORDER BY category, width_ft`))));
+app.get('/api/pvc/media', can('pvc.view', 'pvc.invoice', 'pvc.print', 'dashboard'), wrap(async (req, res) => res.json(await q(`SELECT * FROM pvc_media WHERE NOT deleted ORDER BY category, width_ft`))));
+app.delete('/api/pvc/media/:id', can('pvc.media'), wrap(async (req, res) => {
+  res.json(await tx(async c => {
+    const md = (await c.query(`SELECT * FROM pvc_media WHERE id=$1 AND NOT deleted FOR UPDATE`, [req.params.id])).rows[0]; if (!md) bad('Media not found', 404);
+    const used = (await c.query(`SELECT 1 FROM pvc_stock_movements WHERE media_id=$1 UNION ALL SELECT 1 FROM pvc_print_entries WHERE media_id=$1 UNION ALL SELECT 1 FROM pvc_invoice_items WHERE media_id=$1 UNION ALL SELECT 1 FROM challan_items WHERE media_id=$1 LIMIT 1`, [md.id])).rowCount;
+    if (used) {
+      const bal = await pvcBalance(c, md.id);
+      if (Math.abs(bal) > 0.004) bad(`${md.category} ${+md.width_ft} ft still has ${bal} ft in stock. Bring it to zero with a stock adjustment, then delete.`);
+      await c.query(`UPDATE pvc_media SET deleted=true, active=false WHERE id=$1`, [md.id]);   // keep history; hidden from every list
+    } else await c.query(`DELETE FROM pvc_media WHERE id=$1`, [md.id]);
+    await audit(c, req.user, 'delete', 'pvc_media', md.id, { media: md.category + ' ' + md.width_ft, kept_history: !!used });
+    return { ok: true, archived: !!used };
+  }));
+}));
 app.post('/api/pvc/media', can('pvc.media'), wrap(async (req, res) => {
   const b = req.body; const cat = str(b.category, 80); if (!cat) bad('Media category is required');
   const w = num(b.width_ft, 'Width');
   res.json(await tx(async c => {
     const r = (await c.query(`INSERT INTO pvc_media(category,width_ft,roll_length_ft,low_stock_ft,default_rate,active) VALUES($1,$2,$3,$4,$5,$6)
-      ON CONFLICT(category,width_ft) DO UPDATE SET roll_length_ft=EXCLUDED.roll_length_ft, low_stock_ft=EXCLUDED.low_stock_ft, default_rate=EXCLUDED.default_rate, active=EXCLUDED.active RETURNING *`,
+      ON CONFLICT(category,width_ft) DO UPDATE SET deleted=false, roll_length_ft=EXCLUDED.roll_length_ft, low_stock_ft=EXCLUDED.low_stock_ft, default_rate=EXCLUDED.default_rate, active=EXCLUDED.active RETURNING *`,
       [cat, w, +b.roll_length_ft || 164, b.low_stock_ft === '' || b.low_stock_ft == null ? 20 : +b.low_stock_ft, +b.default_rate || 0, b.active !== false])).rows[0];
     await audit(c, req.user, 'save', 'pvc_media', r.id, r);
     return r;
@@ -867,7 +979,7 @@ app.get('/api/pvc/stock', can('pvc.view', 'pvc.print', 'pvc.invoice', 'dashboard
       -COALESCE(SUM(m.length_ft) FILTER (WHERE m.type='adj_out' AND m.date BETWEEN $1 AND $2),0) adj_out,
       COALESCE(SUM(m.length_ft) FILTER (WHERE m.date <= $2),0) closing,
       COALESCE(SUM(m.length_ft),0) balance
-    FROM pvc_media md LEFT JOIN pvc_stock_movements m ON m.media_id=md.id GROUP BY md.id ORDER BY md.category, md.width_ft`, [from, to]));
+    FROM pvc_media md LEFT JOIN pvc_stock_movements m ON m.media_id=md.id WHERE NOT md.deleted GROUP BY md.id ORDER BY md.category, md.width_ft`, [from, to]));
 }));
 app.get('/api/pvc/movements', can('pvc.view'), wrap(async (req, res) => {
   const { type = '', media = '', from = '1900-01-01', to = '2999-12-31', q: s = '' } = req.query;
@@ -1011,24 +1123,342 @@ app.post('/api/pvc/prints/:id/void', can('stock.adjust'), wrap(async (req, res) 
 
 /* ---------- ink ---------- */
 app.get('/api/ink', can('ink', 'pvc.view', 'dashboard'), wrap(async (req, res) => {
-  const [rows, bal] = await Promise.all([
+  const [rows, bal, gs] = await Promise.all([
     q(`SELECT * FROM pvc_ink_stock ORDER BY date DESC, id DESC LIMIT 500`),
-    q(`SELECT color, COALESCE(SUM(pcs),0)::int pcs, COALESCE(SUM(liters),0) liters FROM pvc_ink_stock GROUP BY color`),
+    q(`SELECT color, COALESCE(SUM(pcs),0)::int pcs, COALESCE(SUM(liters),0) liters,
+         COALESCE(SUM(liters) FILTER (WHERE liters>0),0) liters_in, COALESCE(-SUM(liters) FILTER (WHERE liters<0),0) liters_out FROM pvc_ink_stock GROUP BY color`),
+    genSettings(),
   ]);
-  res.json({ rows, balance: (await lists()).ink_colors.map(c => bal.find(b => b.color === c) || { color: c, pcs: 0, liters: 0 }) });
+  const colors = (await lists()).ink_colors;
+  res.json({ rows, colors, palette: gs.ink_palette || {}, bottle_liters: +gs.ink_bottle_liters || 1,
+    balance: colors.map(c => bal.find(b => b.color === c) || { color: c, pcs: 0, liters: 0, liters_in: 0, liters_out: 0 }) });
 }));
 app.post('/api/ink', can('ink'), wrap(async (req, res) => {
   const b = req.body; if (!(await lists()).ink_colors.includes(b.color)) bad('Select an ink color');
-  const pcs = num(b.pcs, 'Pieces', { int: true, min: -100000 });
-  if (pcs === 0) bad('Pieces cannot be zero');
+  const type = ['in', 'out', 'adj'].includes(b.type) ? b.type : 'in';
+  if (type === 'adj' && !req.user.perms.includes('stock.adjust')) bad('Corrections need the "Stock adjustments" permission', 403);
+  if (type !== 'in' && !str(b.remarks)) bad(type === 'out' ? 'Write what the ink was used for (machine / job)' : 'Reason is required for a correction');
+  const gs = await genSettings(); const per = +gs.ink_bottle_liters || 1;
+  let pcs = parseInt(b.pcs, 10) || 0, liters = b.liters === '' || b.liters == null ? null : Number(b.liters);
+  if (liters != null && !isFinite(liters)) bad('Litres must be a number');
+  if (type === 'adj') { if (!pcs && !liters) bad('Enter pieces or litres to correct'); if (liters == null) liters = pcs * per; }
+  else {
+    pcs = Math.abs(pcs); liters = liters == null ? pcs * per : Math.abs(liters);
+    if (!(liters > 0)) bad(type === 'out' ? 'Enter how much ink was used (litres or bottles)' : 'Enter bottles / litres received');
+    if (type === 'out') { pcs = -pcs; liters = -liters; }
+  }
   const date = entryDate(req, b.date);
   res.json(await tx(async c => {
     await idem(c, req);
-    const r = (await c.query(`INSERT INTO pvc_ink_stock(date,color,pcs,liters,remarks,created_by,created_by_name,created_role) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [date, b.color, pcs, pcs * 1, str(b.remarks), req.user.id, req.user.full_name, req.user.role_name])).rows[0];
-    await audit(c, req.user, 'create', 'ink', r.id, { color: b.color, pcs });
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext('ink'), hashtext($1))`, [b.color]);
+    if (liters < 0) {
+      const have = +(await c.query(`SELECT COALESCE(SUM(liters),0) l FROM pvc_ink_stock WHERE color=$1`, [b.color])).rows[0].l;
+      if (have + liters < -1e-9) bad(`Not enough ${b.color} ink. Available: ${Math.round(have * 1000) / 1000} L`);
+    }
+    const r = (await c.query(`INSERT INTO pvc_ink_stock(date,color,type,pcs,liters,remarks,created_by,created_by_name,created_role) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [date, b.color, type, pcs, Math.round(liters * 1000) / 1000, str(b.remarks), req.user.id, req.user.full_name, req.user.role_name])).rows[0];
+    await audit(c, req.user, 'create', 'ink', r.id, { color: b.color, type, pcs, liters });
     return r;
   }));
+}));
+/* ink colours & bottle size from the ink page itself (no need to open Settings) */
+app.post('/api/ink/colors', can('ink'), wrap(async (req, res) => {
+  const name = str(req.body.name, 40); if (!name) bad('Colour name is required');
+  const hex = /^#[0-9a-f]{6}$/i.test(req.body.hex || '') ? req.body.hex : '#6b7a8f';
+  await tx(async c => {
+    const L = await lists();
+    if (!L.ink_colors.some(x => x.toLowerCase() === name.toLowerCase())) L.ink_colors.push(name);
+    await c.query(`INSERT INTO settings(key,value) VALUES('lists',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(cleanLists(L))]);
+    const gs = await genSettings(); gs.ink_palette = { ...(gs.ink_palette || {}), [name]: hex };
+    if (req.body.bottle_liters != null && +req.body.bottle_liters > 0) gs.ink_bottle_liters = +req.body.bottle_liters;
+    await c.query(`INSERT INTO settings(key,value) VALUES('general',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(gs)]);
+    await audit(c, req.user, 'update', 'ink_colors', null, { name, hex });
+  });
+  res.json({ ok: true });
+}));
+app.delete('/api/ink/colors/:name', can('ink'), wrap(async (req, res) => {
+  const name = req.params.name;
+  await tx(async c => {
+    const have = +(await c.query(`SELECT COALESCE(SUM(liters),0) l FROM pvc_ink_stock WHERE color=$1`, [name])).rows[0].l;
+    if (Math.abs(have) > 1e-9) bad(`${name} still has ${have} L in stock — use it up or correct it to zero first`);
+    const L = await lists(); L.ink_colors = L.ink_colors.filter(x => x !== name);
+    if (!L.ink_colors.length) bad('Keep at least one ink colour');
+    await c.query(`INSERT INTO settings(key,value) VALUES('lists',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(cleanLists(L))]);
+    await audit(c, req.user, 'delete', 'ink_color', null, { name });
+  });
+  res.json({ ok: true });
+}));
+app.put('/api/ink/settings', can('ink'), wrap(async (req, res) => {
+  const v = num(req.body.bottle_liters, 'Litres per bottle');
+  await tx(async c => { const gs = await genSettings(); gs.ink_bottle_liters = v; await c.query(`INSERT INTO settings(key,value) VALUES('general',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(gs)]); });
+  res.json({ ok: true });
+}));
+
+/* ============================== GENERAL SECTION + INTERNAL INVENTORY ============================== */
+const GEN_KIND_PERM = { lamination: ['general.view', 'general.stock', 'general.invoice'], paper: ['general.view', 'general.stock', 'general.invoice'], internal: ['internal'] };
+const GEN_EDIT_PERM = { lamination: 'general.items', paper: 'general.items', internal: 'internal' };
+const GEN_MOVE_PERM = { lamination: 'general.stock', paper: 'general.stock', internal: 'internal' };
+const GEN_KIND = k => { if (!GEN_KIND_PERM[k]) bad('Unknown item group', 404); return k; };
+const genSee = (u, k) => { if (!GEN_KIND_PERM[k].some(p => u.perms.includes(p))) bad('You do not have permission for this action', 403); };
+const GEN_OUT = ['use', 'job', 'wastage', 'adj_out'];
+const fmtQ = n => String(Math.round(n * 1000) / 1000);
+async function genSettings() {
+  const r = await q1(`SELECT value FROM settings WHERE key='general'`);
+  const v = { ...DEFAULT_GENERAL, ...(r?.value || {}) };
+  if (!Array.isArray(v.job_types) || !v.job_types.length) v.job_types = DEFAULT_GENERAL.job_types;
+  return v;
+}
+async function genBalance(c, id) { return +(await c.query(`SELECT COALESCE(SUM(qty),0) b FROM gen_moves WHERE item_id=$1`, [id])).rows[0].b; }
+async function genMove(c, u, m) {
+  return (await c.query(`INSERT INTO gen_moves(date,item_id,type,qty,purpose,party,ref_type,ref_id,ref_no,remarks,is_reversal,reversal_of,created_by,created_by_name,created_role)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+    [m.date, m.item_id, m.type, m.qty, m.purpose || null, m.party || null, m.ref_type || null, m.ref_id || null, m.ref_no || null, m.remarks || null, !!m.is_reversal, m.reversal_of || null, u.id, u.full_name, u.role_name])).rows[0];
+}
+/** take stock out of a general/internal item — never below zero */
+async function genOut(c, u, item, qty, m) {
+  await c.query(`SELECT pg_advisory_xact_lock(hashtext('gen_item'), $1)`, [item.id]);
+  const bal = await genBalance(c, item.id);
+  if (bal + 1e-9 < qty) bad(`Not enough ${item.name} in stock. Available: ${fmtQ(bal)} ${item.unit}, needed: ${fmtQ(qty)} ${item.unit}`);
+  return genMove(c, u, { ...m, item_id: item.id, qty: -qty });
+}
+const genItemName = b => str(b.name, 120) || [b.paper_type, b.gsm ? b.gsm + ' GSM' : '', b.size, b.color, b.finish, b.width_in ? b.width_in + '"' : ''].filter(Boolean).join(' ').slice(0, 120);
+function genItemFields(kind, b, L) {
+  const name = genItemName(b); if (!name) bad('Item name is required');
+  const unit = kind === 'lamination' ? 'ft' : (str(b.unit, 30) || (kind === 'paper' ? 'Ream' : 'Pcs'));
+  const width = b.width_in === '' || b.width_in == null ? null : num(b.width_in, 'Film width (inch)');
+  if (kind === 'lamination' && !width) bad('Film width (inch) is required for lamination film');
+  return [name, unit, str(b.size, 60), str(b.gsm, 20), str(b.paper_type, 60), str(b.color, 40), str(b.machine, 80), str(b.finish, 40), width,
+    b.roll_length === '' || b.roll_length == null ? null : num(b.roll_length, 'Roll length'), Math.max(0, +b.low_stock || 0), Math.max(0, +b.rate || 0), str(b.remarks), parseInt(b.sort, 10) || 0, b.active !== false];
+}
+app.get('/api/gen/:kind/items', wrap(async (req, res) => {
+  const kind = GEN_KIND(req.params.kind); genSee(req.user, kind);
+  const from = req.query.from || '1900-01-01', to = req.query.to || '2999-12-31';
+  res.json(await q(`SELECT i.*, COALESCE(SUM(m.qty),0) balance,
+      COALESCE(SUM(m.qty) FILTER (WHERE m.date<$2),0) opening_bal,
+      COALESCE(SUM(m.qty) FILTER (WHERE m.qty>0 AND m.date BETWEEN $2 AND $3),0) qty_in,
+      COALESCE(-SUM(m.qty) FILTER (WHERE m.qty<0 AND m.date BETWEEN $2 AND $3),0) qty_out
+    FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE i.kind=$1 AND NOT i.deleted GROUP BY i.id ORDER BY i.sort, i.name`, [kind, from, to]));
+}));
+app.post('/api/gen/:kind/items', wrap(async (req, res) => {
+  const kind = GEN_KIND(req.params.kind); if (!req.user.perms.includes(GEN_EDIT_PERM[kind])) bad('You do not have permission for this action', 403);
+  const f = genItemFields(kind, req.body);
+  res.json(await tx(async c => {
+    if ((await c.query(`SELECT 1 FROM gen_items WHERE kind=$1 AND lower(name)=lower($2) AND NOT deleted`, [kind, f[0]])).rowCount) bad('An item with this name already exists');
+    const r = (await c.query(`INSERT INTO gen_items(kind,name,unit,size,gsm,paper_type,color,machine,finish,width_in,roll_length,low_stock,rate,remarks,sort,active,created_by,created_by_name)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`, [kind, ...f, req.user.id, req.user.full_name])).rows[0];
+    const open = +req.body.opening || 0;
+    if (open > 0) await genMove(c, req.user, { date: today(), item_id: r.id, type: 'opening', qty: open, remarks: 'Opening stock' });
+    await audit(c, req.user, 'create', 'gen_item', r.id, { kind, name: r.name, opening: open });
+    return r;
+  }));
+}));
+app.put('/api/gen/:kind/items/:id', wrap(async (req, res) => {
+  const kind = GEN_KIND(req.params.kind); if (!req.user.perms.includes(GEN_EDIT_PERM[kind])) bad('You do not have permission for this action', 403);
+  const f = genItemFields(kind, req.body);
+  res.json(await tx(async c => {
+    const old = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND kind=$2 AND NOT deleted FOR UPDATE`, [req.params.id, kind])).rows[0]; if (!old) bad('Item not found', 404);
+    if ((await c.query(`SELECT 1 FROM gen_items WHERE kind=$1 AND lower(name)=lower($2) AND NOT deleted AND id<>$3`, [kind, f[0], old.id])).rowCount) bad('Another item has this name');
+    if (old.unit !== f[1] && (await c.query(`SELECT 1 FROM gen_moves WHERE item_id=$1 LIMIT 1`, [old.id])).rowCount) bad(`Unit cannot be changed after stock entries exist (current unit: ${old.unit})`);
+    const r = (await c.query(`UPDATE gen_items SET name=$1,unit=$2,size=$3,gsm=$4,paper_type=$5,color=$6,machine=$7,finish=$8,width_in=$9,roll_length=$10,low_stock=$11,rate=$12,remarks=$13,sort=$14,active=$15,
+      updated_by_name=$16, updated_at=now() WHERE id=$17 RETURNING *`, [...f, req.user.full_name, old.id])).rows[0];
+    await audit(c, req.user, 'update', 'gen_item', r.id, { before: old, after: r });
+    return r;
+  }));
+}));
+app.delete('/api/gen/:kind/items/:id', wrap(async (req, res) => {
+  const kind = GEN_KIND(req.params.kind); if (!req.user.perms.includes(GEN_EDIT_PERM[kind])) bad('You do not have permission for this action', 403);
+  res.json(await tx(async c => {
+    const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND kind=$2 AND NOT deleted FOR UPDATE`, [req.params.id, kind])).rows[0]; if (!it) bad('Item not found', 404);
+    const used = (await c.query(`SELECT 1 FROM gen_moves WHERE item_id=$1 UNION ALL SELECT 1 FROM gen_invoice_items WHERE film_item_id=$1 OR paper_item_id=$1 LIMIT 1`, [it.id])).rowCount;
+    if (used) {
+      const bal = await genBalance(c, it.id);
+      if (Math.abs(bal) > 1e-9) bad(`${it.name} still has ${fmtQ(bal)} ${it.unit} in stock. Bring it to zero with a stock adjustment, then delete.`);
+      await c.query(`UPDATE gen_items SET deleted=true, active=false, updated_by_name=$1, updated_at=now() WHERE id=$2`, [req.user.full_name, it.id]);   // history stays intact
+    } else await c.query(`DELETE FROM gen_items WHERE id=$1`, [it.id]);
+    await audit(c, req.user, 'delete', 'gen_item', it.id, { kind, name: it.name, kept_history: !!used });
+    return { ok: true, archived: !!used };
+  }));
+}));
+app.get('/api/gen/:kind/moves', wrap(async (req, res) => {
+  const kind = GEN_KIND(req.params.kind); genSee(req.user, kind);
+  const { from = '1900-01-01', to = '2999-12-31', item = '' } = req.query;
+  res.json(await q(`SELECT m.*, i.name item, i.unit FROM gen_moves m JOIN gen_items i ON i.id=m.item_id
+    WHERE i.kind=$1 AND m.date BETWEEN $2 AND $3 AND ($4='' OR m.item_id=$4::int) ORDER BY m.date DESC, m.id DESC LIMIT 2000`, [kind, from, to, String(item)]));
+}));
+app.post('/api/gen/:kind/moves', wrap(async (req, res) => {
+  const kind = GEN_KIND(req.params.kind), u = req.user, b = req.body;
+  if (!u.perms.includes(GEN_MOVE_PERM[kind])) bad('You do not have permission for this action', 403);
+  const type = b.type;
+  if (!['opening', 'stock_in', 'use', 'wastage', 'adj_in', 'adj_out'].includes(type)) bad('Select an entry type');
+  if (['adj_in', 'adj_out'].includes(type) && !u.perms.includes('stock.adjust')) bad('Stock adjustments need the "Stock adjustments" permission', 403);
+  if (['adj_in', 'adj_out', 'wastage'].includes(type) && !str(b.reason)) bad('Reason is required');
+  if (type === 'use' && !str(b.purpose)) bad('Purpose is required (what was it used for?)');
+  const qty = num(b.qty, 'Quantity');
+  const date = entryDate(req, b.date);
+  res.json(await tx(async c => {
+    await idem(c, req);
+    const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND kind=$2 AND NOT deleted`, [b.item_id, kind])).rows[0]; if (!it) bad('Select an item');
+    const m = { date, type, purpose: str(b.purpose) || str(b.reason), party: str(b.party), remarks: str(b.remarks) };
+    const r = GEN_OUT.includes(type) ? await genOut(c, u, it, qty, m) : await genMove(c, u, { ...m, item_id: it.id, qty });
+    await audit(c, u, 'create', 'gen_move', r.id, { kind, item: it.name, type, qty });
+    return { ...r, balance: await genBalance(c, it.id) };
+  }));
+}));
+app.post('/api/gen/moves/:id/void', can('stock.adjust'), wrap(async (req, res) => {
+  const reason = str(req.body.reason); if (!reason) bad('Reason is required');
+  res.json(await tx(async c => {
+    const m = (await c.query(`SELECT m.*, i.name, i.unit, i.kind FROM gen_moves m JOIN gen_items i ON i.id=m.item_id WHERE m.id=$1 FOR UPDATE OF m`, [req.params.id])).rows[0];
+    if (!m || m.voided || m.is_reversal) bad('Entry not found / already voided');
+    if (m.ref_type === 'gen_invoice') bad('This entry belongs to a General invoice. Cancel the invoice instead.');
+    if (+m.qty > 0) { await c.query(`SELECT pg_advisory_xact_lock(hashtext('gen_item'), $1)`, [m.item_id]); if ((await genBalance(c, m.item_id)) + 1e-9 < +m.qty) bad(`Cannot void: ${m.name} stock would go below zero`); }
+    await c.query(`UPDATE gen_moves SET voided=true, void_reason=$1 WHERE id=$2`, [reason, m.id]);
+    await genMove(c, req.user, { ...m, date: today(), qty: -m.qty, is_reversal: true, reversal_of: m.id, remarks: 'VOID: ' + reason });
+    await audit(c, req.user, 'void', 'gen_move', m.id, { reason });
+    return { ok: true };
+  }));
+}));
+
+/* general settings: job types, units, ink options */
+app.get('/api/general/settings', can('general.view', 'general.invoice', 'general.items', 'internal', 'ink', 'settings'), wrap(async (req, res) => res.json({ ...(await genSettings()), price_units: PRICE_UNITS })));
+app.put('/api/general/settings', can('general.items', 'settings'), wrap(async (req, res) => {
+  const b = req.body, cur = await genSettings();
+  const jt = (Array.isArray(b.job_types) ? b.job_types : cur.job_types).slice(0, 60).map(j => ({
+    name: String(j.name || '').trim().slice(0, 60), unit: PRICE_UNITS[j.unit] ? j.unit : 'pc', rate: Math.max(0, +j.rate || 0), min_qty: Math.max(0, +j.min_qty || 0), film: !!j.film, paper: !!j.paper,
+  })).filter(j => j.name);
+  if (!jt.length) bad('Keep at least one job type');
+  if (new Set(jt.map(j => j.name.toLowerCase())).size !== jt.length) bad('Job type names must be unique');
+  const v = { ...cur, job_types: jt };
+  await tx(async c => {
+    await c.query(`INSERT INTO settings(key,value) VALUES('general',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(v)]);
+    await audit(c, req.user, 'update', 'general_settings', null, { job_types: jt.length });
+  });
+  res.json(v);
+}));
+
+/* dropdown lists used by the General section and Internal inventory (only these keys can be changed here) */
+const GEN_LIST_KEYS = { 'general.items': ['lamination_machines', 'lamination_finishes', 'paper_sizes', 'paper_types', 'paper_colors', 'paper_units'], internal: ['internal_units'] };
+app.put('/api/general/lists', can('general.items', 'internal', 'settings'), wrap(async (req, res) => {
+  const allowed = new Set(req.user.perms.includes('settings') ? Object.values(GEN_LIST_KEYS).flat() : Object.entries(GEN_LIST_KEYS).filter(([p]) => req.user.perms.includes(p)).flatMap(([, k]) => k));
+  const cur = await lists(), next = { ...cur };
+  for (const [k, v] of Object.entries(req.body || {})) { if (!allowed.has(k)) bad('You cannot change this list', 403); next[k] = v; }
+  const clean = cleanLists(next);
+  await tx(async c => {
+    await c.query(`INSERT INTO settings(key,value) VALUES('lists',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(clean)]);
+    await audit(c, req.user, 'update', 'lists', null, { keys: Object.keys(req.body || {}) });
+  });
+  res.json(clean);
+}));
+
+/* general job billing */
+function genLine(l, jt, films, papers) {
+  const t = jt.find(x => x.name === l.job_type); if (!t) bad('Select a job type for every line');
+  const unit = PRICE_UNITS[l.price_unit] ? l.price_unit : t.unit;
+  const qty = num(l.qty, `${t.name}: quantity`);
+  const rate = num(l.rate, `${t.name}: rate`, { allowZero: true });
+  const w = +l.w || 0, len = +l.l || 0;
+  if (['sqin', 'sqft'].includes(unit) && !(w > 0 && len > 0)) bad(`${t.name}: enter width and length (inch)`);
+  const billed = Math.max(qty, t.min_qty || 0);   // minimum quantity is charged when the order is smaller
+  const area = w * len;
+  const amount = { pc: billed * rate, book: billed * rate, set: billed * rate, job: billed * rate, h100: billed / 100 * rate, k1000: billed / 1000 * rate, sqin: area * billed * rate, sqft: area / 144 * billed * rate }[unit];
+  const out = { job_type: t.name, description: str(l.description, 300), w: w || null, l: len || null, colours: parseInt(l.colours, 10) || null, qty, price_unit: unit, billed_qty: billed, rate, line_total: r2(amount),
+    film_item_id: null, film_used: null, paper_item_id: null, paper_qty: null };
+  if (l.film_item_id) {
+    const f = films.find(x => x.id === +l.film_item_id); if (!f) bad('Select a valid lamination film');
+    if (!(w > 0 && len > 0)) bad(`${t.name}: enter width and length (inch) to calculate film use`);
+    const fw = +f.width_in; const runIn = w <= fw ? len : len <= fw ? w : null;
+    if (runIn == null) bad(`${w}"×${len}" does not fit on ${f.name} (${fw}" wide film)`);
+    out.film_item_id = f.id; out.film_used = Math.round(runIn * qty / 12 * 1000) / 1000; out._film = f;   // feet of film = run length × pieces
+  }
+  if (l.paper_item_id && +l.paper_qty > 0) {
+    const pp = papers.find(x => x.id === +l.paper_item_id); if (!pp) bad('Select a valid paper');
+    out.paper_item_id = pp.id; out.paper_qty = +l.paper_qty; out._paper = pp;
+  }
+  return out;
+}
+async function getGenInvoice(c, id) {
+  const inv = (await c.query(`SELECT i.*, cu.name customer, cu.company, cu.phone, cu.address,
+      COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='gen' AND a.invoice_id=i.id AND NOT p.voided),0) paid
+    FROM gen_invoices i JOIN customers cu ON cu.id=i.customer_id WHERE i.id=$1`, [id])).rows[0];
+  if (!inv) bad('Invoice not found', 404);
+  inv.items = (await c.query(`SELECT ii.*, f.name film, f.unit film_unit, pp.name paper, pp.unit paper_unit FROM gen_invoice_items ii LEFT JOIN gen_items f ON f.id=ii.film_item_id LEFT JOIN gen_items pp ON pp.id=ii.paper_item_id WHERE invoice_id=$1 ORDER BY ii.id`, [id])).rows;
+  inv.division = 'gen';
+  inv.due = inv.status === 'confirmed' ? r2(inv.grand_total - inv.paid) : 0;
+  inv.pay_status = inv.status !== 'confirmed' ? inv.status : inv.due <= 0.004 ? 'Paid' : inv.paid > 0 ? 'Partial' : 'Due';
+  const pd = (await c.query(`SELECT (${CUST_BAL}) b FROM customers c WHERE c.id=$1`, [inv.customer_id])).rows[0];
+  inv.prev_due = r2(+pd.b - inv.due);
+  return inv;
+}
+app.get('/api/gen/invoices', can('general.view', 'general.invoice', 'reports'), wrap(async (req, res) => {
+  const { from = '1900-01-01', to = '2999-12-31', q: s = '', status = '' } = req.query;
+  res.json(await q(`SELECT i.*, c.name customer, c.phone, ${PAID_SQL('gen')} paid,
+      (SELECT string_agg(DISTINCT job_type, ', ') FROM gen_invoice_items WHERE invoice_id=i.id) jobs
+    FROM gen_invoices i JOIN customers c ON c.id=i.customer_id
+    WHERE i.date BETWEEN $1 AND $2 AND ($3='' OR i.status=$3) AND ($4='' OR lower(i.inv_no||' '||c.name||' '||COALESCE(c.phone,'')||' '||COALESCE(i.job_no,'')) LIKE '%'||lower($4)||'%')
+    ORDER BY i.date DESC, i.id DESC LIMIT 1500`, [from, to, status, s]));
+}));
+app.get('/api/gen/invoices/:id', can('general.view', 'general.invoice', 'reports'), wrap(async (req, res) => res.json(await getGenInvoice(db, +req.params.id))));
+app.post('/api/gen/invoices', can('general.invoice'), wrap(async (req, res) => {
+  const b = req.body, u = req.user;
+  const date = entryDate(req, b.date);
+  const gs = await genSettings();
+  if (!Array.isArray(b.items) || !b.items.length) bad('Add at least one job line');
+  if (b.items.length > 100) bad('Too many lines');
+  const paid = Math.max(0, +b.paid_amount || 0);
+  if (paid && !(await lists()).payment_methods.includes(b.payment_method)) bad('Select a payment method');
+  res.json(await tx(async c => {
+    await idem(c, req);
+    const cust = (await c.query(`SELECT id FROM customers WHERE id=$1 FOR UPDATE`, [b.customer_id])).rows[0]; if (!cust) bad('Select a customer');
+    const films = (await c.query(`SELECT * FROM gen_items WHERE kind='lamination' AND NOT deleted`)).rows, papers = (await c.query(`SELECT * FROM gen_items WHERE kind='paper' AND NOT deleted`)).rows;
+    const lines = b.items.map(l => genLine(l, gs.job_types, films, papers));
+    const subtotal = r2(lines.reduce((s2, l) => s2 + l.line_total, 0));
+    const discount = r2(Math.max(0, +b.discount || 0)); if (discount > subtotal) bad('Discount cannot be more than the subtotal');
+    const grand = r2(subtotal - discount);
+    if (paid > grand + 0.004) bad('Paid amount cannot be more than the invoice total');
+    const inv_no = await nextNo(c, 'gen_inv');
+    const inv = (await c.query(`INSERT INTO gen_invoices(inv_no,date,customer_id,status,subtotal,discount,grand_total,payment_method,job_no,delivery_date,remarks,created_by,created_by_name,created_role)
+      VALUES($1,$2,$3,'confirmed',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [inv_no, date, cust.id, subtotal, discount, grand, str(b.payment_method) || 'Cash', str(b.job_no, 60), b.delivery_date || null, str(b.remarks), u.id, u.full_name, u.role_name])).rows[0];
+    // total film / paper per item, so a stock check covers all lines together
+    const need = new Map();
+    for (const l of lines) {
+      await c.query(`INSERT INTO gen_invoice_items(invoice_id,job_type,description,w,l,colours,qty,price_unit,billed_qty,rate,line_total,film_item_id,film_used,paper_item_id,paper_qty)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [inv.id, l.job_type, l.description, l.w, l.l, l.colours, l.qty, l.price_unit, l.billed_qty, l.rate, l.line_total, l.film_item_id, l.film_used, l.paper_item_id, l.paper_qty]);
+      if (l._film) need.set(l._film.id, { item: l._film, qty: (need.get(l._film.id)?.qty || 0) + l.film_used });
+      if (l._paper) need.set(l._paper.id, { item: l._paper, qty: (need.get(l._paper.id)?.qty || 0) + l.paper_qty });
+    }
+    for (const { item, qty } of need.values())
+      await genOut(c, u, item, Math.round(qty * 1000) / 1000, { date, type: 'job', ref_type: 'gen_invoice', ref_id: inv.id, ref_no: inv_no, party: null, remarks: 'Used in ' + inv_no });
+    if (paid > 0) await recordPayment(c, u, { date, customer_id: cust.id, amount: paid, method: b.payment_method, division: 'gen', remarks: 'Paid at invoice ' + inv_no, allocations: [{ division: 'gen', invoice_id: inv.id, amount: paid }] });
+    await audit(c, u, 'create', 'gen_invoice', inv.id, { inv_no, total: grand, lines: lines.length });
+    return getGenInvoice(c, inv.id);
+  }));
+}));
+app.post('/api/gen/invoices/:id/cancel', can('invoice.cancel'), wrap(async (req, res) => {
+  const id = +req.params.id, u = req.user;
+  const reason = str(req.body.reason); if (!reason) bad('Cancellation reason is required');
+  res.json(await tx(async c => {
+    const inv = (await c.query(`SELECT * FROM gen_invoices WHERE id=$1 FOR UPDATE`, [id])).rows[0];
+    if (!inv) bad('Invoice not found', 404);
+    if (inv.status !== 'confirmed') bad('Only confirmed invoices can be cancelled');
+    const mv = (await c.query(`SELECT * FROM gen_moves WHERE ref_type='gen_invoice' AND ref_id=$1 AND NOT is_reversal AND NOT voided`, [id])).rows;
+    for (const m of mv) {
+      await c.query(`UPDATE gen_moves SET voided=true, void_reason=$1 WHERE id=$2`, ['Invoice cancelled: ' + reason, m.id]);
+      await genMove(c, u, { ...m, date: today(), qty: -m.qty, is_reversal: true, reversal_of: m.id, remarks: 'CANCEL ' + inv.inv_no + ': ' + reason });
+    }
+    const freed = (await c.query(`DELETE FROM payment_allocations WHERE division='gen' AND invoice_id=$1 RETURNING amount`, [id])).rows.reduce((s2, r) => s2 + +r.amount, 0);
+    await c.query(`UPDATE gen_invoices SET status='cancelled', cancelled_by=$1, cancelled_by_name=$2, cancelled_at=now(), cancel_reason=$3 WHERE id=$4`, [u.id, u.full_name, reason, id]);
+    await audit(c, u, 'cancel', 'gen_invoice', id, { inv_no: inv.inv_no, reason, reversed_movements: mv.length, payments_released_as_credit: r2(freed) });
+    return getGenInvoice(c, id);
+  }));
+}));
+app.get('/api/gen/summary', can('general.view', 'general.invoice', 'general.stock'), wrap(async (req, res) => {
+  const { from = today().slice(0, 8) + '01', to = today() } = req.query;
+  const [tot, byType, low] = await Promise.all([
+    q1(`SELECT COALESCE(SUM(grand_total),0) sales, COUNT(*)::int n, COALESCE(SUM(grand_total - ${PAID_SQL('gen')}),0) due FROM gen_invoices i WHERE status='confirmed' AND date BETWEEN $1 AND $2`, [from, to]),
+    q(`SELECT ii.job_type, SUM(ii.qty) qty, SUM(ii.line_total) amount FROM gen_invoice_items ii JOIN gen_invoices i ON i.id=ii.invoice_id WHERE i.status='confirmed' AND i.date BETWEEN $1 AND $2 GROUP BY 1 ORDER BY 3 DESC`, [from, to]),
+    q(`SELECT i.id, i.kind, i.name, i.unit, i.low_stock, COALESCE(SUM(m.qty),0) balance FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE i.kind IN ('lamination','paper') AND i.active AND NOT i.deleted GROUP BY i.id HAVING COALESCE(SUM(m.qty),0) <= i.low_stock ORDER BY i.kind, i.name`),
+  ]);
+  res.json({ from, to, sales: r2(tot.sales), invoices: tot.n, due: r2(tot.due), by_type: byType, low_stock: low });
 }));
 
 /* ============================== INVOICES ============================== */
@@ -1316,9 +1746,11 @@ app.post('/api/:div/challans', wrap(async (req, res) => {
       if (!lines.length) bad('Add at least one line');
     }
     const dc_no = await nextNo(c, div + '_dc');
-    const ch = (await c.query(`INSERT INTO challans(division,dc_no,date,invoice_id,customer_id,receiver,carried_by,issuing_authority,remarks,standalone,created_by,created_by_name,created_role)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-      [div, dc_no, date, invoice?.id || null, customer_id, str(b.receiver), str(b.carried_by), str(b.issuing_authority) || u.full_name, str(b.remarks), !invoice, u.id, u.full_name, u.role_name])).rows[0];
+    const prepared = str(b.prepared_by, 80) || u.full_name;
+    const nick = b.prepared_nick === undefined ? (u.nickname || null) : str(b.prepared_nick, 40);
+    const ch = (await c.query(`INSERT INTO challans(division,dc_no,date,invoice_id,customer_id,receiver,carried_by,issuing_authority,remarks,standalone,created_by,created_by_name,created_role,prepared_by,prepared_nick)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+      [div, dc_no, date, invoice?.id || null, customer_id, str(b.receiver), str(b.carried_by), str(b.issuing_authority) || u.full_name, str(b.remarks), !invoice, u.id, u.full_name, u.role_name, prepared, nick])).rows[0];
     for (const l of lines) {
       await c.query(`INSERT INTO challan_items(challan_id,invoice_item_id,product_id,media_id,qty,length_ft,sqft,description,cost) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [ch.id, l.invoice_item_id || null, l.product_id || null, l.media_id || null, l.qty, l.length_ft || null, l.sqft || null, l.description, l.cost || null]);
@@ -1363,8 +1795,8 @@ app.post('/api/:div/challans/:id/cancel', wrap(async (req, res) => {
 app.get('/api/payments', can('payments', 'accounts.view'), wrap(async (req, res) => {
   const { from = '1900-01-01', to = '2999-12-31', q: s = '', customer = '', created_by = '' } = req.query;
   res.json(await q(`SELECT p.*, c.name customer, COALESCE((SELECT SUM(amount) FROM payment_allocations WHERE payment_id=p.id),0) allocated,
-      (SELECT string_agg(CASE a.division WHEN 'ctp' THEN ci.inv_no ELSE pi.inv_no END, ', ') FROM payment_allocations a LEFT JOIN ctp_invoices ci ON a.division='ctp' AND ci.id=a.invoice_id
-        LEFT JOIN pvc_invoices pi ON a.division='pvc' AND pi.id=a.invoice_id WHERE a.payment_id=p.id) invoices
+      (SELECT string_agg(CASE a.division WHEN 'ctp' THEN ci.inv_no WHEN 'gen' THEN gi.inv_no ELSE pi.inv_no END, ', ') FROM payment_allocations a LEFT JOIN ctp_invoices ci ON a.division='ctp' AND ci.id=a.invoice_id
+        LEFT JOIN pvc_invoices pi ON a.division='pvc' AND pi.id=a.invoice_id LEFT JOIN gen_invoices gi ON a.division='gen' AND gi.id=a.invoice_id WHERE a.payment_id=p.id) invoices
     FROM payments p JOIN customers c ON c.id=p.customer_id
     WHERE p.date BETWEEN $1 AND $2 AND ($3='' OR p.customer_id=$3::int) AND ($4='' OR p.created_by=$4::int)
       AND ($5='' OR lower(c.name||' '||COALESCE(p.receipt_no,'')||' '||COALESCE(p.reference,'')||' '||COALESCE(p.method,'')) LIKE '%'||lower($5)||'%')
@@ -1374,6 +1806,7 @@ async function allocate(c, customer_id, amount, allocations, auto, autoDivision)
   const open = (await c.query(`SELECT * FROM (
       SELECT 'ctp' division, i.id, i.inv_no, i.date, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='ctp' AND a.invoice_id=i.id AND NOT p.voided),0) due FROM ctp_invoices i WHERE customer_id=$1 AND status='confirmed'
       UNION ALL SELECT 'pvc', i.id, i.inv_no, i.date, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='pvc' AND a.invoice_id=i.id AND NOT p.voided),0) FROM pvc_invoices i WHERE customer_id=$1 AND status='confirmed'
+      UNION ALL SELECT 'gen', i.id, i.inv_no, i.date, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='gen' AND a.invoice_id=i.id AND NOT p.voided),0) FROM gen_invoices i WHERE customer_id=$1 AND status='confirmed'
     ) x WHERE due > 0.004 ORDER BY date, id`, [customer_id])).rows;
   const out = []; let left = r2(amount);
   if (auto) {
@@ -1447,6 +1880,7 @@ async function receivables() {
   const r = await q1(`SELECT
      COALESCE((SELECT SUM(i.grand_total - ${PAID_SQL('ctp')}) FROM ctp_invoices i WHERE status='confirmed'),0) ctp_due,
      COALESCE((SELECT SUM(i.grand_total - ${PAID_SQL('pvc')}) FROM pvc_invoices i WHERE status='confirmed'),0) pvc_due,
+     COALESCE((SELECT SUM(i.grand_total - ${PAID_SQL('gen')}) FROM gen_invoices i WHERE status='confirmed'),0) gen_due,
      COALESCE((SELECT SUM(opening_balance) FROM customers),0) opening,
      COALESCE((SELECT SUM(p.amount - COALESCE((SELECT SUM(amount) FROM payment_allocations WHERE payment_id=p.id),0)) FROM payments p WHERE NOT voided),0) unallocated,
      COALESCE((SELECT SUM(GREATEST(b,0)) FROM (SELECT (${CUST_BAL}) b FROM customers c) x),0) combined_due,
@@ -1671,7 +2105,7 @@ app.post('/api/export/xlsx', wrap(async (req, res) => {
 }));
 
 /* ============================== USERS / SETTINGS ============================== */
-app.get('/api/users', can('users'), wrap(async (req, res) => res.json(await q(`SELECT u.id,u.username,u.full_name,u.phone,u.active,u.last_login,u.created_at,u.role_id,r.name role FROM users u LEFT JOIN roles r ON r.id=u.role_id ORDER BY u.id`))));
+app.get('/api/users', can('users'), wrap(async (req, res) => res.json(await q(`SELECT u.id,u.username,u.full_name,u.nickname,u.phone,u.active,u.last_login,u.created_at,u.role_id,r.name role FROM users u LEFT JOIN roles r ON r.id=u.role_id ORDER BY u.id`))));
 app.post('/api/users', can('users'), wrap(async (req, res) => {
   const b = req.body; const un = str(b.username, 40), fn = str(b.full_name, 100);
   if (!un || !/^[a-zA-Z0-9_.-]+$/.test(un)) bad('Username: letters, numbers, _ . - only');
@@ -1679,7 +2113,7 @@ app.post('/api/users', can('users'), wrap(async (req, res) => {
   if (String(b.password || '').length < 6) bad('Password must be at least 6 characters');
   res.json(await tx(async c => {
     if ((await c.query(`SELECT 1 FROM users WHERE lower(username)=lower($1)`, [un])).rowCount) bad('Username already exists');
-    const r = (await c.query(`INSERT INTO users(username,full_name,phone,password_hash,role_id,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,username,full_name`, [un, fn, str(b.phone), bcrypt.hashSync(b.password, 10), b.role_id, req.user.id])).rows[0];
+    const r = (await c.query(`INSERT INTO users(username,full_name,phone,password_hash,role_id,created_by,nickname) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,username,full_name`, [un, fn, str(b.phone), bcrypt.hashSync(b.password, 10), b.role_id, req.user.id, str(b.nickname, 40)])).rows[0];
     await audit(c, req.user, 'create', 'user', r.id, { username: un, role_id: b.role_id });
     return r;
   }));
@@ -1689,7 +2123,7 @@ app.put('/api/users/:id', can('users'), wrap(async (req, res) => {
   res.json(await tx(async c => {
     const old = (await c.query(`SELECT * FROM users WHERE id=$1`, [id])).rows[0]; if (!old) bad('User not found', 404);
     if (id === req.user.id && b.active === false) bad('You cannot deactivate yourself');
-    await c.query(`UPDATE users SET full_name=$1, phone=$2, role_id=$3, active=$4, updated_at=now(), updated_by=$5 WHERE id=$6`, [str(b.full_name) || old.full_name, str(b.phone), b.role_id || old.role_id, b.active !== false, req.user.id, id]);
+    await c.query(`UPDATE users SET full_name=$1, phone=$2, role_id=$3, active=$4, updated_at=now(), updated_by=$5, nickname=$7 WHERE id=$6`, [str(b.full_name) || old.full_name, str(b.phone), b.role_id || old.role_id, b.active !== false, req.user.id, id, b.nickname === undefined ? old.nickname : str(b.nickname, 40)]);
     if (b.password) { if (String(b.password).length < 6) bad('Password must be at least 6 characters'); await c.query(`UPDATE users SET password_hash=$1 WHERE id=$2`, [bcrypt.hashSync(b.password, 10), id]); await pool.query(`DELETE FROM public.platform_sessions WHERE kind='tenant' AND tenant_id=$1 AND user_id=$2`, [req.tenant.id, id]); }
     if (b.active === false) await pool.query(`DELETE FROM public.platform_sessions WHERE kind='tenant' AND tenant_id=$1 AND user_id=$2`, [req.tenant.id, id]);
     await audit(c, req.user, 'update', 'user', id, { role_id: b.role_id, active: b.active, password_reset: !!b.password });
@@ -1732,13 +2166,13 @@ app.get('/api/settings', can('settings'), wrap(async (req, res) => {
 app.put('/api/settings', can('settings'), wrap(async (req, res) => {
   await tx(async c => {
     for (const k of ['company', 'pvc', 'ctp', 'lists']) if (req.body.settings?.[k])
-      await c.query(`INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [k, JSON.stringify(k === 'lists' ? cleanLists(req.body.settings.lists) : { ...(await getSetting(k)), ...req.body.settings[k] })]);
+      await c.query(`INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [k, JSON.stringify(k === 'lists' ? cleanLists({ ...(await lists()), ...req.body.settings.lists }) : { ...(await getSetting(k)), ...req.body.settings[k] })]);
     for (const s of req.body.sequences || []) {
       const cur = (await c.query(`SELECT * FROM invoice_sequences WHERE key=$1`, [s.key])).rows[0]; if (!cur) continue;
       const n = parseInt(s.last_no, 10); if (!(n >= 0)) bad('Sequence must be a positive number');
       if (n < cur.last_no) {   // never allow re-use of an already issued number
         const prefix = cur.prefix;
-        const tbl = { ctp_inv: ['ctp_invoices', 'inv_no'], pvc_inv: ['pvc_invoices', 'inv_no'], ctp_dc: ['challans', 'dc_no'], pvc_dc: ['challans', 'dc_no'], receipt: ['payments', 'receipt_no'] }[s.key];
+        const tbl = { ctp_inv: ['ctp_invoices', 'inv_no'], pvc_inv: ['pvc_invoices', 'inv_no'], gen_inv: ['gen_invoices', 'inv_no'], ctp_dc: ['challans', 'dc_no'], pvc_dc: ['challans', 'dc_no'], receipt: ['payments', 'receipt_no'] }[s.key];
         const used = (await c.query(`SELECT 1 FROM ${tbl[0]} WHERE ${tbl[1]} LIKE $1||'%' LIMIT 1`, [prefix])).rowCount;
         if (used) bad(`Cannot lower ${s.key} below ${cur.last_no}: numbers already issued`);
       }
@@ -1755,7 +2189,7 @@ app.get('/api/audit', can('audit'), wrap(async (req, res) => {
 
 /* ---------- backup / restore ---------- */
 const BACKUP_TABLES = ['roles', 'users', 'settings', 'invoice_sequences', 'customers', 'ctp_products', 'ctp_prices', 'pvc_media', 'pvc_print_entries', 'ctp_invoices', 'ctp_invoice_items',
-  'pvc_invoices', 'pvc_invoice_items', 'ctp_stock_movements', 'pvc_stock_movements', 'pvc_ink_stock', 'challans', 'challan_items', 'payments', 'payment_allocations', 'expenses', 'audit_logs'];
+  'pvc_invoices', 'pvc_invoice_items', 'ctp_stock_movements', 'pvc_stock_movements', 'pvc_ink_stock', 'challans', 'challan_items', 'gen_items', 'gen_invoices', 'gen_invoice_items', 'gen_moves', 'payments', 'payment_allocations', 'expenses', 'audit_logs'];
 app.get('/api/backup', can('backup'), wrap(async (req, res) => {
   const data = { app: 'sks-printers-ubm', version: 1, created_at: new Date().toISOString(), created_by: req.user.full_name, tables: {} };
   for (const t of BACKUP_TABLES) data.tables[t] = await q(`SELECT * FROM ${t} ORDER BY 1`);

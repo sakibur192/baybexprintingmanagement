@@ -123,10 +123,10 @@ App.pages.ctp = {
       { k: 'name', label: 'Plate', f: r => `<b>${esc(r.name)}</b><div class="sub">${esc(r.alias || '')}</div>` }, { k: 'size_mm', label: 'Size', f: r => `<span class="sub">${esc(r.size_mm || '')}<br>${esc(r.size_in || '')}</span>` },
       { k: 'current_rate', label: 'Rate', n: 1, f: r => `<b>${tk(r.current_rate)}</b>` }, { k: 'low_stock', label: 'Low alert', n: 1 },
       { k: 'active', label: 'Status', f: r => r.active ? '<span class="tag green">Active</span>' : '<span class="tag gray">Inactive</span>' },
-      { k: 'x', label: '', sort: false, f: r => can('ctp.rates') ? `<button class="btn xs ghost" data-ed="${r.id}">Edit</button>` : '' },
+      { k: 'x', label: '', sort: false, f: r => can('ctp.rates') ? `<button class="btn xs ghost" data-ed="${r.id}">Edit</button> <button class="btn xs ghost" data-del="${r.id}" style="color:var(--danger)" title="Delete">${ICON.trash.replace('<svg', '<svg width="13"')}</button>` : '' },
     ], { search: false });
     if ($('#addp', el)) $('#addp', el).onclick = () => edit(null);
-    el.addEventListener('click', e => { const b = e.target.closest('[data-ed]'); if (b) edit(prods.find(p => p.id === +b.dataset.ed)); });
+    el.addEventListener('click', e => { const b = e.target.closest('[data-ed]'); if (b) edit(prods.find(p => p.id === +b.dataset.ed)); const d = e.target.closest('[data-del]'); if (d) masterDelete('/api/ctp/products/' + d.dataset.del, prods.find(p => p.id === +d.dataset.del)?.name); });
     dataTable($('#rh', el), hist, [{ k: 'created_at', label: 'When', f: r => fdt(r.created_at) }, { k: 'name', label: 'Plate' }, { k: 'old_rate', label: 'Old', n: 1, f: r => r.old_rate == null ? '—' : tk(r.old_rate) }, { k: 'rate', label: 'New', n: 1, f: r => `<b>${tk(r.rate)}</b>` }, { k: 'created_by_name', label: 'By' }], { search: false, empty: 'No rate changes yet' });
   },
 };

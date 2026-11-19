@@ -68,3 +68,46 @@ Every text on the public website (`/`) can be edited from the super admin. Nothi
 - **Live preview:** the website preview updates after **Save & publish**.
 - **Where prices come from:** plan cards and prices still come from **Plans & Pricing**.
 - **Storage and safety:** content is stored in `platform_settings.website`. Unknown keys are dropped, and text is escaped (no HTML injection).
+
+## General section (sidebar → General, right under Dashboard)
+
+One menu item with tabs. It covers everything outside CTP plates and PVC media.
+
+- **Jobs & Bills** — bills for ID cards, lamination, memo / receipt books, binding, visiting cards, posters, cutting and any job type you add.
+  - **Pricing:** each job type is priced per piece, per sq inch, per sq ft, per book, per set, per 100, per 1000 or per job.
+  - **Minimum quantity:** charged automatically when an order is smaller (e.g. 500 visiting cards billed as 1000).
+  - **Film:** lamination lines can take film from stock. The feet used are worked out from the size and the roll width, and a job that doesn't fit the width is refused.
+  - **Paper:** memo and binding lines can take paper from stock.
+  - **Accounts:** bills are numbered `GEN-INV-00001` and appear in the customer balance, ledger (filter "General"), payments and allocation, and backup.
+  - **Cancelling:** a cancelled bill returns its film and paper to stock.
+- **Lamination Film** — film rolls by machine, finish and width (inch), tracked in feet. Entries: stock in (rolls × length), own use, wastage, adjustments.
+- **Paper Stock** — paper by type (offset, duplicate, triplicate, auto carbon…), GSM, size (Demy 18, F4, 1/16…) and colour, in reams, packets or sheets. Own use leaves stock with a purpose.
+- **Overview** — sales by job type, low stock, a plate calculator (colours × sides × forms) and a cutting calculator (pieces per sheet, sheets needed).
+- **Job Types & Lists** — the tenant edits job types (rate, minimum, uses film/paper) and every dropdown: machines, finishes, paper types, sizes, colours, units.
+
+## Internal Inventory (sidebar → bottom)
+
+Things the business uses itself. It starts with PVC Solvent (Ltr), CTP Wash (Ltr), CTP Developer (Ltr) and Filter Paper (Pcs), and tenants add any item with any unit.
+
+- **Entries:** stock in, use (purpose required), wastage, adjustments.
+- **Stock rules:** stock can never go below zero, and a void creates a reversal entry.
+
+## Other changes
+
+- **Delete on master lists:**
+  - CTP plates, PVC media, customers, film, paper and internal items.
+  - An unused entry is removed completely.
+  - A used entry is only hidden; its history stays and stock must be zero first.
+  - Customers with invoices, payments or challans cannot be deleted; untick "Active" to hide them instead.
+  - Transaction records are never deleted; they are voided or cancelled as before.
+- **Challans:** "Prepared by" (defaults to the logged-in user, editable) and an optional "Nickname" are saved and printed. Users also have an optional nickname.
+- **Ink stock:**
+  - Entries can be stock in, use / stock out (with "used for") or a correction.
+  - Litres per bottle is configurable.
+  - Tenants add any colour (Light Cyan, White, Orange…) with a swatch, straight from the ink page, and empty colours can be removed.
+  - Use more than the stock is blocked.
+- **Print / PDF everywhere:**
+  - Every print button first asks for paper size: A4, A5, A3, A6, Letter, Legal, F4/Folio, or an 80 mm / 58 mm receipt roll.
+  - It also asks for portrait or landscape and the margin.
+  - The page prints, or saves as a PDF, at exactly that size. Receipt rolls get a narrow layout with the page length fitted to the content.
+  - The last choice is remembered.

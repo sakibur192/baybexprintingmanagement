@@ -10,7 +10,7 @@ function inWords(amount) {
   const t = Math.floor(Math.abs(amount)), p = Math.round((Math.abs(amount) - t) * 100);
   return 'Taka ' + conv(t) + (p ? ' and ' + two(p) + ' Paisa' : '') + ' Only';
 }
-const DIVN = { ctp: 'CTP', pvc: 'PVC' };
+const DIVN = { ctp: 'CTP', pvc: 'PVC', gen: 'General' };
 
 /* -------- print templates -------- */
 function invoiceDoc(inv) {
@@ -57,11 +57,12 @@ function challanDoc(ch, div) {
     <div class="meta"><div><b>Challan No.</b> <span style="font-size:18px;font-weight:800">${esc(ch.dc_no)}</span></div><div><b>Delivery date:</b> ${fdate(ch.date)}</div>
       <div><b>Name of institution:</b> ${esc(ch.customer || '')}${ch.company ? ' — ' + esc(ch.company) : ''}</div><div><b>From:</b> ${esc(c.name)}</div>
       <div><b>Address:</b> ${esc(ch.address || '')}</div><div><b>Carried by:</b> ${esc(ch.carried_by || '')}</div>
-      <div><b>Issuing authority:</b> ${esc(ch.issuing_authority || ch.created_by_name || '')}</div><div><b>Related invoice:</b> ${esc(ch.inv_no || '—')}</div></div>
+      <div><b>Issuing authority:</b> ${esc(ch.issuing_authority || ch.created_by_name || '')}</div><div><b>Related invoice:</b> ${esc(ch.inv_no || '—')}</div>
+      <div><b>Prepared by:</b> ${esc(ch.prepared_by || ch.created_by_name || '')}${ch.prepared_nick ? ` <span class="muted">(${esc(ch.prepared_nick)})</span>` : ''}</div></div>
     <table><thead><tr><th style="width:44px">SL</th><th class="n" style="width:110px">Quantity</th><th>Description</th><th class="n" style="width:110px">Cost</th><th style="width:150px">Source / Remarks</th></tr></thead>
       <tbody>${lines}${'<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>'.repeat(pad)}</tbody></table>
     ${ch.remarks ? `<div class="fine"><b>Remarks:</b> ${esc(ch.remarks)}</div>` : ''}
-    <div class="sign"><div>Materials delivered by<br><span class="muted">Name & Designation</span></div><div>Materials received<br><span class="muted">${esc(ch.receiver || 'Name & Designation')}</span></div></div>
+    <div class="sign"><div>Materials delivered by<br><span class="muted">${esc(ch.prepared_by || 'Name & Designation')}</span></div><div>Materials received<br><span class="muted">${esc(ch.receiver || 'Name & Designation')}</span></div></div>
     <div class="fine">${esc(c.challan_note || '')}</div></div>`;
 }
 
@@ -279,9 +280,11 @@ App.pages['ctp-invoices'] = invoiceListPage('ctp');
 App.pages['pvc-invoices'] = invoiceListPage('pvc');
 
 /* -------- challans -------- */
+/** who is making this challan — defaults to the logged-in employee, both editable; nickname may stay empty */
+const preparedFields = () => field('Prepared by <span class="req">*</span>', `<input name="prepared_by" value="${esc(App.user.full_name)}">`) + field('Nickname', `<input name="prepared_nick" value="${esc(App.user.nickname || '')}" placeholder="optional">`);
 function challanFromInvoice(div, inv) {
   const m = modal({
-    title: `Delivery challan for ${inv.inv_no}`, size: 'wide', body: `<div class="form" id="chf">${field('Delivery date', dateInput())}${field('Received by', `<input name="receiver" placeholder="Receiver name">`)}${field('Carried by', `<input name="carried_by">`)}${field('Remarks', `<input name="remarks">`, 'span3')}</div>
+    title: `Delivery challan for ${inv.inv_no}`, size: 'wide', body: `<div class="form" id="chf">${field('Delivery date', dateInput())}${field('Received by', `<input name="receiver" placeholder="Receiver name">`)}${field('Carried by', `<input name="carried_by">`)}${preparedFields()}${field('Remarks', `<input name="remarks">`, 'span3')}</div>
     <div class="tbl-wrap mt"><table><thead><tr><th>Item</th><th class="n">Invoiced</th><th class="n">Delivered</th><th class="n">Remaining</th><th style="width:140px">Deliver now</th></tr></thead><tbody>
     ${inv.items.map(i => { const rem = +i.qty - +i.delivered; return `<tr><td>${div === 'ctp' ? esc(i.product) : i.kind === 'piece' ? esc(i.description) : `${esc(i.category)} ${+i.width_ft} ft · ${+i.art_w}×${+i.art_l}`}</td><td class="n">${i.qty}</td><td class="n">${n0(i.delivered)}</td><td class="n"><b>${rem}</b></td><td><input class="inp" type="number" min="0" max="${rem}" step="1" data-it="${i.id}" value="${rem}" ${rem <= 0 ? 'disabled' : ''}></td></tr>`; }).join('')}
     </tbody></table></div><div class="note">Creating a challan does <b>not</b> deduct stock again — stock was deducted when the invoice was confirmed. Partial deliveries are allowed.</div>
@@ -298,7 +301,7 @@ function standaloneChallan(div) {
   let cust = null; const lines = [{}];
   const m = modal({
     title: `Standalone ${DIVN[div]} challan (no invoice)`, size: 'wide', body: `<div class="note warn" style="margin:0 0 12px">Authorized only. A standalone delivery creates its own stock movement.</div>
-    <div class="form" id="sf"><div class="field span2">Customer <span class="req">*</span><div id="scp"></div></div>${field('Delivery date', dateInput())}${field('Received by', `<input name="receiver">`)}${field('Carried by', `<input name="carried_by">`)}${field('Reason / remarks <span class="req">*</span>', `<input name="remarks">`)}</div>
+    <div class="form" id="sf"><div class="field span2">Customer <span class="req">*</span><div id="scp"></div></div>${field('Delivery date', dateInput())}${field('Received by', `<input name="receiver">`)}${field('Carried by', `<input name="carried_by">`)}${preparedFields()}${field('Reason / remarks <span class="req">*</span>', `<input name="remarks">`)}</div>
     <div class="tbl-wrap mt"><table><thead><tr><th>${div === 'ctp' ? 'Plate' : 'Media'}</th>${div === 'pvc' ? '<th>Length (ft)</th>' : ''}<th>Qty</th><th>Description</th><th>Cost</th></tr></thead><tbody id="sl"></tbody></table></div>
     <div class="actions"><button class="btn ghost" id="sla">+ Line</button><button class="btn" id="sls">Create challan</button></div>`,
   });
@@ -347,7 +350,7 @@ function challanPage(div) {
       dataTable($('#ctbl', v), rows, [
         { k: 'dc_no', label: 'Challan', f: r => `<b>${esc(r.dc_no)}</b>` }, { k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'customer', label: 'Customer' },
         { k: 'inv_no', label: 'Invoice', f: r => r.inv_no ? esc(r.inv_no) : '<span class="tag orange">Standalone</span>' }, { k: 'qty', label: 'Qty', n: 1, f: r => n0(r.qty) },
-        { k: 'receiver', label: 'Received by' }, { k: 'status', label: 'Status', f: r => statusTag(r.status) }, { k: 'created_by_name', label: 'By', f: r => `<span class="sub">${esc(r.created_by_name)}</span>` },
+        { k: 'receiver', label: 'Received by' }, { k: 'status', label: 'Status', f: r => statusTag(r.status) }, { k: 'prepared_by', label: 'Prepared by', f: r => `<span class="sub">${esc(r.prepared_by || r.created_by_name)}${r.prepared_nick ? ' (' + esc(r.prepared_nick) + ')' : ''}</span>` },
       ], { onRow: r => App.go(`${div}-challans/${r.id}`), empty: 'No challans yet' });
     },
   };
