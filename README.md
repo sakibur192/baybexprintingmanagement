@@ -50,6 +50,7 @@ Logo & brand colour · business details · invoice/challan titles and footer not
 - Set **Super admin → Platform Settings → Public base URL** (e.g. `https://print.baybexai.com`) so QR codes and links point to your real domain.
 
 ## Tests
+`node tests/acceptance-test.js` (131 checks) and `node tests/press-test.js` (77 checks) against a running server.
 `node tests/acceptance-test.js` (server running) — 98 checks: spec v1.0–1.3 acceptance tests + SaaS isolation, trial lock, payment approval, suspension, impersonation, Android release upload/version check/forced update/download, brochure upload & download, discounts & coupons.
 
 ## Deploy (Coolify / VPS)
@@ -69,28 +70,27 @@ Every text on the public website (`/`) can be edited from the super admin. Nothi
 - **Where prices come from:** plan cards and prices still come from **Plans & Pricing**.
 - **Storage and safety:** content is stored in `platform_settings.website`. Unknown keys are dropped, and text is escaped (no HTML injection).
 
-## General section (sidebar → General, right under Dashboard)
+## Sidebar order
+Overview (Dashboard) → **Printing Press** → **PVC / Media** → **CTP** → Shared (Customers, Accounts/Payments/Refunds, Expenses, Reports, Press Settings, Users & Settings, App, Subscription).
+The old *General* and *Internal Inventory* sections are gone: their items (lamination film, paper, solvent, wash, developer, filter paper…) now live in **Press → Store**, and ID-card / memo / binding jobs are done as **Counter Jobs** (order + challan + invoice in one step). Old General bills stay viewable read-only.
 
-One menu item with tabs. It covers everything outside CTP plates and PVC media.
+## Printing Press (from the offset press spec)
+- **Orders**: many products per order, each with its own design, production steps (from templates), delivery and costs. Advance payment on the order is auto-allocated when the invoice is made.
+- **Design**: start → send → approve / revision; file upload after approval. Printing/plate steps are blocked until the design is approved.
+- **Production board + calendar** (day/week/month), machines, outsourcing (with payment → expense).
+- **Store**: items, purchases (ream↔sheet, weighted average cost), use/wastage/adjust, material **issue** (only this reduces stock) and **return** (usable → stock, damaged → loss). Customer-supplied materials register.
+- **Delivery**: partial deliveries make A5 challans; one final A4 invoice per order (discount, adjustment, close-early with reason).
+- **Void register** with snapshot, optional second-person approval.
+- **Job costing**: estimated vs actual (materials + outsourcing + extra costs).
+- **Paper calculator**: ups (normal/rotated/mixed), make-ready, wastage, reams, weight, cost.
+- **29 press reports** with CSV export; dashboard shows all divisions together.
+- Roles: Marketing Officer (sees only own orders), Store Staff, Designer, Accountant, Manager.
 
-- **Jobs & Bills** — bills for ID cards, lamination, memo / receipt books, binding, visiting cards, posters, cutting and any job type you add.
-  - **Pricing:** each job type is priced per piece, per sq inch, per sq ft, per book, per set, per 100, per 1000 or per job.
-  - **Minimum quantity:** charged automatically when an order is smaller (e.g. 500 visiting cards billed as 1000).
-  - **Film:** lamination lines can take film from stock. The feet used are worked out from the size and the roll width, and a job that doesn't fit the width is refused.
-  - **Paper:** memo and binding lines can take paper from stock.
-  - **Accounts:** bills are numbered `GEN-INV-00001` and appear in the customer balance, ledger (filter "General"), payments and allocation, and backup.
-  - **Cancelling:** a cancelled bill returns its film and paper to stock.
-- **Lamination Film** — film rolls by machine, finish and width (inch), tracked in feet. Entries: stock in (rolls × length), own use, wastage, adjustments.
-- **Paper Stock** — paper by type (offset, duplicate, triplicate, auto carbon…), GSM, size (Demy 18, F4, 1/16…) and colour, in reams, packets or sheets. Own use leaves stock with a purpose.
-- **Overview** — sales by job type, low stock, a plate calculator (colours × sides × forms) and a cutting calculator (pieces per sheet, sheets needed).
-- **Job Types & Lists** — the tenant edits job types (rate, minimum, uses film/paper) and every dropdown: machines, finishes, paper types, sizes, colours, units.
+## Refunds
+Cancelling any invoice (Press, PVC, CTP, old General) that already had money paid asks whether to **refund** it now (amount + method) instead of leaving it as advance. Refunds can also be made any time from Accounts or the customer page, up to the customer's available credit. Refunds appear in the ledger and reduce net collection.
 
-## Internal Inventory (sidebar → bottom)
-
-Things the business uses itself. It starts with PVC Solvent (Ltr), CTP Wash (Ltr), CTP Developer (Ltr) and Filter Paper (Pcs), and tenants add any item with any unit.
-
-- **Entries:** stock in, use (purpose required), wastage, adjustments.
-- **Stock rules:** stock can never go below zero, and a void creates a reversal entry.
+## Pen-and-paper catch-up (power / internet cuts)
+Every entry form has a date (and time for payments/steps). Anyone may back-date up to **Press Settings → back-date days** (default 31); older dates need the *date.edit* permission. Future and impossible dates (e.g. 31 Feb) are rejected. Date maths now uses UTC internally, so "yesterday" is correct in Bangladesh time (UTC+6).
 
 ## Other changes
 

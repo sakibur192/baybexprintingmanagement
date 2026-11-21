@@ -1,10 +1,11 @@
 /* Customers, accounts, payments, ledger, expenses */
 'use strict';
-function paymentModal({ customer = null, invoice = null } = {}, done) {
-  let cust = customer, open = [];
+function paymentModal({ customer = null, invoice = null, order = null } = {}, done) {
+  let cust = customer, open = [], orders = [], ord = order ? order.id : '';
   const m = modal({
     title: 'Receive payment', size: 'wide', icon: `<span class="feed-ic" style="background:var(--ok)">৳</span>`,
-    body: `<div class="form" id="pmf"><div class="field span2">Customer <span class="req">*</span><div id="pmc"></div></div>${field('Date', dateInput())}
+    body: `<div class="form" id="pmf"><div class="field span2">Customer <span class="req">*</span><div id="pmc"></div></div>${field('Date', dateInput())}${field('Time', timeInput())}
+      <div class="field span2" id="pmo">Against press order<select name="order_id"><option value="">— no order (CTP / PVC / general payment) —</option></select></div>
       ${field('Amount (৳) <span class="req">*</span>', `<input type="number" step="0.01" min="0.01" name="amount" value="${invoice ? invoice.due : ''}">`)}
       ${field('Method', `<select name="method">${App.meta.payment_methods.map(p => opt(p, p)).join('')}</select>`)}
       ${field('Reference', `<input name="reference" placeholder="Txn ID / cheque no.">`)}
@@ -17,6 +18,8 @@ function paymentModal({ customer = null, invoice = null } = {}, done) {
   const key = uid();
   const drawAlloc = () => {
     const amt = +$('[name=amount]', m.el).value || 0;
+    if (ord) { $('#amode', m.el).classList.add('hide'); const o = orders.find(x => x.id === +ord) || order; $('#alloc', m.el).innerHTML = `<div class="note">Payment for order <b>${esc(o?.order_no || '')}</b>. ${o && o.inv_no ? 'It goes to invoice ' + esc(o.inv_no) + '.' : 'Before the final invoice it is kept as the order\'s advance and applied automatically when the invoice is made.'}</div>`; $('#pnote', m.el).textContent = ''; return; }
+    $('#amode', m.el).classList.remove('hide');
     $$('#amode button', m.el).forEach(b => b.classList.toggle('on', b.dataset.m === mode));
     if (!cust) { $('#alloc', m.el).innerHTML = '<div class="empty">Select a customer to see open invoices</div>'; $('#pnote', m.el).textContent = ''; return; }
     if (!open.length) { $('#alloc', m.el).innerHTML = '<div class="empty">No open invoices — the full amount will be kept as advance / customer credit.</div>'; $('#pnote', m.el).innerHTML = `Advance: <b>${tk(amt)}</b>`; return; }
@@ -36,8 +39,16 @@ function paymentModal({ customer = null, invoice = null } = {}, done) {
     $('#pnote', m.el).className = 'note ' + (left < -0.004 ? 'danger' : '');
     $('#pnote', m.el).innerHTML = left < -0.004 ? 'Allocations exceed the amount received.' : `Allocated <b>${tk(alloc)}</b>${left > 0.004 ? ` · <b>${tk(left)}</b> kept as advance / unallocated credit` : ''} · Total outstanding ${tk(open.reduce((s, o) => s + o.due, 0))}`;
   };
-  const load = async () => { open = cust ? await GET(`/api/customers/${cust.id}/open-invoices`) : []; drawAlloc(); };
-  custPicker($('#pmc', m.el), { value: cust, onPick: c => { cust = c; load(); } });
+  const load = async () => {
+    open = cust ? await GET(`/api/customers/${cust.id}/open-invoices`) : [];
+    orders = cust && can('press.view', 'press.orders') ? (await GET('/api/press/orders', { from: '2000-01-01', to: App.today, customer: cust.id }).catch(() => [])).filter(o => o.status !== 'cancelled') : [];
+    const sel = $('[name=order_id]', m.el);
+    sel.innerHTML = `<option value="">— no order (CTP / PVC / general payment) —</option>` + orders.map(o => opt(o.id, `${o.order_no} · ${o.products || ''} · ${tk(o.total)}${o.inv_no ? ' · ' + o.inv_no : ''}`.slice(0, 100), ord)).join('');
+    $('#pmo', m.el).classList.toggle('hide', !orders.length && !order);
+    drawAlloc();
+  };
+  $('[name=order_id]', m.el).onchange = e => { ord = e.target.value; drawAlloc(); };
+  custPicker($('#pmc', m.el), { value: cust, onPick: c => { cust = c; ord = ''; load(); } });
   $$('#amode button', m.el).forEach(b => b.onclick = () => { mode = b.dataset.m; open.forEach(o => delete o._a); drawAlloc(); });
   $('[name=amount]', m.el).oninput = () => (mode === 'auto' ? drawAlloc() : note());
   $('[data-x]', m.el).onclick = m.close;
@@ -45,10 +56,38 @@ function paymentModal({ customer = null, invoice = null } = {}, done) {
   $('#pms', m.el).onclick = () => busy($('#pms', m.el), async () => {
     if (!cust) return toast('Select a customer', '', 'warn');
     if (!requireFields(m.el, ['amount'])) return;
-    const b = { ...formData($('#pmf', m.el)), customer_id: cust.id, auto: mode === 'auto', allocations: mode === 'manual' ? open.filter(o => o._a > 0).map(o => ({ division: o.division, invoice_id: o.id, amount: o._a })) : [] };
+    const b = { ...formData($('#pmf', m.el)), customer_id: cust.id, order_id: ord || null, auto: mode === 'auto', allocations: !ord && mode === 'manual' ? open.filter(o => o._a > 0).map(o => ({ division: o.division, invoice_id: o.id, amount: o._a })) : [] };
     const r = await POST('/api/payments', b, { idemKey: key });
     toast('Payment recorded', `${r.receipt_no} · ${tk(r.amount)}${r.unallocated > 0 ? ' · ' + tk(r.unallocated) + ' advance' : ''}`); m.close(); done && done(r);
   });
+}
+
+/* ---------------- refunds (money given back: cancelled job, extra advance) ---------------- */
+async function refundModal({ customer = null, order = null, amount = null } = {}, done) {
+  let cust = customer, credit = 0;
+  const m = modal({ title: 'Refund money to customer', size: 'narrow', icon: `<span class="feed-ic" style="background:var(--danger)">৳</span>`,
+    body: `<div class="form" id="rff"><div class="field">Customer <span class="req">*</span><div id="rfc"></div></div><div class="note" id="rfn">Select a customer</div>
+      ${field('Date', dateInput())}${field('Time', timeInput())}${field('Refund amount (৳) <span class="req">*</span>', `<input type="number" min="0.01" step="0.01" name="amount" value="${amount || ''}">`)}
+      ${field('Paid back by', `<select name="method">${App.meta.payment_methods.map(x => opt(x, x)).join('')}</select>`)}${field('Reference', `<input name="reference" placeholder="bKash Txn / cheque">`)}
+      ${field('Reason <span class="req">*</span>', `<input name="reason" value="${order ? esc(order.status === 'cancelled' ? 'Order ' + order.order_no + ' cancelled' : 'Extra payment on ' + order.order_no) : ''}" placeholder="order cancelled, extra advance…">`)}</div>
+    <div class="actions"><button class="btn ghost" data-x>Cancel</button><button class="btn danger" id="rfs">Refund</button></div>` });
+  const load = async () => { if (!cust) return; credit = (await GET(`/api/customers/${cust.id}/credit`)).credit; $('#rfn', m.el).innerHTML = credit > 0.004 ? `Advance / credit available to refund: <b>${tk(credit)}</b><div class="sub">This includes advances of running orders — refund only money that really goes back to the customer.</div>` : 'This customer has no advance / credit to refund.'; if (!amount && credit > 0) $('[name=amount]', m.el).value = credit; };
+  custPicker($('#rfc', m.el), { value: cust, allowAdd: false, onPick: c => { cust = c; load(); } });
+  $('[data-x]', m.el).onclick = m.close; load();
+  const key = uid();
+  $('#rfs', m.el).onclick = () => busy($('#rfs', m.el), async () => {
+    if (!cust) return toast('Select a customer', '', 'warn'); if (!requireFields(m.el, ['amount', 'reason'])) return;
+    const r = await POST('/api/refunds', { ...formData($('#rff', m.el)), customer_id: cust.id, order_id: order?.id }, { idemKey: key });
+    m.close(); toast('Refund saved', `${r.refund_no} · ${tk(r.amount)}`); done && done(r);
+  });
+}
+function refundTable(el, rows) {
+  dataTable(el, rows.map(r => ({ ...r, _cls: r.voided ? 'void' : '' })), [{ k: 'date', label: 'Date', f: r => `${fdate(r.date)} <span class="sub">${esc(r.time || '')}</span>` }, { k: 'refund_no', label: 'Refund', f: r => `<b>${esc(r.refund_no)}</b>` },
+    ...(rows.some(r => r.customer) ? [{ k: 'customer', label: 'Customer' }] : []), { k: 'order_no', label: 'Order', f: r => r.order_no ? esc(r.order_no) : (r.related ? esc(r.related) : '') }, { k: 'method', label: 'Method' },
+    { k: 'amount', label: 'Amount', n: 1, f: r => `<b style="color:var(--danger)">${tk(r.amount)}</b>`, total: d => tk(d.filter(r => !r.voided).reduce((s, r) => s + +r.amount, 0)) }, { k: 'reason', label: 'Reason' },
+    { k: 'created_by_name', label: 'By', f: r => `<span class="sub">${esc(r.created_by_name)}</span>` }, { k: 'x', label: '', sort: false, f: r => !r.voided && can('invoice.cancel') ? `<button class="btn xs ghost" data-rv="${r.id}">Void</button>` : r.voided ? '<span class="tag red">Void</span>' : '' }],
+    { totals: true, empty: 'No refunds' });
+  el.addEventListener('click', async e => { const b = e.target.closest('[data-rv]'); if (b) { const r = await confirmBox('Void refund?', 'Use this only if the refund was entered by mistake.', { ok: 'Void', danger: true, input: 'Reason' }); if (r) { try { await POST(`/api/refunds/${b.dataset.rv}/void`, { reason: r }); App.refresh(); } catch (er) { fail(er); } } } });
 }
 
 /* ---------------- customers ---------------- */
@@ -76,15 +115,16 @@ App.pages.customers = {
     const c = d.customer; $('#title').textContent = c.name;
     v.innerHTML = `<div class="head"><button class="btn ghost" onclick="App.go('customers')">← Customers</button><div class="row">
       ${can('customers.edit') ? `<button class="btn ghost" id="cdel" style="color:var(--danger)">${ICON.trash.replace('<svg', '<svg width="14"')} Delete</button><button class="btn ghost" id="ed">Edit</button>` : ''}${can('payments') ? `<button class="btn green" id="pay">${ICON.money} Receive payment</button>` : ''}
-      ${can('ctp.invoice') ? `<button class="btn light" id="nci">New CTP invoice</button>` : ''}${can('pvc.invoice') ? `<button class="btn teal" id="npi">New PVC invoice</button>` : ''}${can('general.invoice') ? `<button class="btn ghost" id="ngi">New General job</button>` : ''}</div></div>
+      ${can('ctp.invoice') ? `<button class="btn light" id="nci">New CTP invoice</button>` : ''}${can('pvc.invoice') ? `<button class="btn teal" id="npi">New PVC invoice</button>` : ''}${can('press.orders') ? `<button class="btn ghost" id="ngi">New press order</button>` : ''}${can('refunds') && d.credit > 0.004 ? `<button class="btn ghost" id="crf">Refund ${tk(d.credit)}</button>` : ''}</div></div>
       <div class="panel"><div class="cust-head"><div class="cust-av">${esc(c.name[0])}</div><div style="flex:1"><h2 style="font-size:20px">${esc(c.name)}</h2><div class="sub">${esc([c.company, c.contact_person, c.phone, c.address, c.email].filter(Boolean).join(' · '))}</div>${c.remarks ? `<div class="small mt">${esc(c.remarks)}</div>` : ''}</div>
         <div class="tr"><div class="sub">Current balance</div><div class="big-num" style="color:${c.balance > 0 ? 'var(--danger)' : 'var(--ok)'}">${c.balance < 0 ? tk(-c.balance) + ' adv' : tk(c.balance)}</div></div></div></div>
       <div class="stats stagger"><div class="stat"><small>CTP outstanding</small><b>${tk(d.ctp_due)}</b><div class="foot">${d.ctp.filter(i => i.status === 'confirmed').length} invoices</div></div>
         <div class="stat" style="--c:var(--pvc)"><small>PVC outstanding</small><b>${tk(d.pvc_due)}</b><div class="foot">${d.pvc.filter(i => i.status === 'confirmed').length} invoices</div></div>
-        ${d.gen && d.gen.length ? `<div class="stat" style="--c:#e8833a"><small>General outstanding</small><b>${tk(d.gen_due)}</b><div class="foot">${d.gen.filter(i => i.status === 'confirmed').length} invoices</div></div>` : ''}
+        ${d.orders && d.orders.length ? `<div class="stat" style="--c:#7b5cd6"><small>Press outstanding</small><b>${tk(d.press_due)}</b><div class="foot">${d.orders.length} orders · ${d.press.filter(i => i.status === 'final').length} invoices</div></div>` : ''}
+        ${d.gen && d.gen.length ? `<div class="stat" style="--c:#e8833a"><small>Old job bills outstanding</small><b>${tk(d.gen_due)}</b><div class="foot">${d.gen.filter(i => i.status === 'confirmed').length} invoices</div></div>` : ''}
         <div class="stat" style="--c:var(--warn)"><small>Opening balance</small><b>${tk(c.opening_balance)}</b></div>
-        <div class="stat" style="--c:var(--ok)"><small>Unallocated credit</small><b>${tk(d.unallocated)}</b><div class="foot">${d.payments.filter(p => !p.voided).length} payments</div></div></div>
-      <div class="tabs">${[['ledger', 'Combined Ledger'], ['ctp', 'CTP History'], ['pvc', 'PVC History'], ...(d.gen && d.gen.length ? [['gen', 'General History']] : []), ['pay', 'Payments']].map(([k, l], i) => `<button data-t="${k}" class="${i ? '' : 'on'}">${l}</button>`).join('')}</div><div id="pane"></div>`;
+        <div class="stat" style="--c:var(--ok)"><small>Advance / credit</small><b>${tk(d.credit)}</b><div class="foot">${d.payments.filter(p => !p.voided).length} payments${d.refunds.filter(r => !r.voided).length ? ' · ' + d.refunds.filter(r => !r.voided).length + ' refunds' : ''}</div></div></div>
+      <div class="tabs">${[['ledger', 'Combined Ledger'], ['ctp', 'CTP History'], ['pvc', 'PVC History'], ...(d.orders && d.orders.length ? [['orders', 'Press Orders']] : []), ...(d.gen && d.gen.length ? [['gen', 'Old job bills']] : []), ['pay', 'Payments'], ...(d.refunds.length ? [['refunds', 'Refunds']] : [])].map(([k, l], i) => `<button data-t="${k}" class="${i ? '' : 'on'}">${l}</button>`).join('')}</div><div id="pane"></div>`;
     const pane = $('#pane', v);
     const tabs = {
       ledger: async () => ledgerView(pane, c.id),
@@ -92,13 +132,16 @@ App.pages.customers = {
       pvc: () => { pane.innerHTML = `<div class="grid g32"><div class="panel"><div id="t1"></div></div><div class="panel"><h2>Media-wise purchase</h2><div class="tbl-wrap mt"><table><thead><tr><th>Media</th><th class="n">Sq ft</th><th class="n">Amount</th></tr></thead><tbody>${d.pvcItems.map(i => `<tr><td>${esc(i.category)} ${+i.width_ft} ft</td><td class="n">${n0(i.sqft)}</td><td class="n">${tk(i.amount)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No PVC purchases</td></tr>'}</tbody></table></div></div></div>`; invTable($('#t1', pane), d.pvc, 'pvc'); },
       gen: () => { pane.innerHTML = '<div class="panel"><div id="t1"></div></div>'; invTable($('#t1', pane), d.gen, 'gen'); },
       pay: () => { pane.innerHTML = '<div class="panel"><div id="t1"></div></div>'; payTable($('#t1', pane), d.payments); },
+      orders: () => { pane.innerHTML = '<div class="panel"><div id="t1"></div></div>'; dataTable($('#t1', pane), d.orders, [{ k: 'order_no', label: 'Order', f: r => `<b>${esc(r.order_no)}</b>` }, { k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'products', label: 'Products' }, { k: 'total', label: 'Value', n: 1, f: r => tk(r.total) }, { k: 'paid', label: 'Paid', n: 1, f: r => tk(r.paid) }, { k: 'status', label: 'Status', f: r => oTag(r.status) + (r.inv_no ? `<div class="sub">${esc(r.inv_no)}</div>` : '') }], { onRow: r => App.go('press-orders/' + r.id) }); },
+      refunds: () => { pane.innerHTML = '<div class="panel"><div id="t1"></div></div>'; refundTable($('#t1', pane), d.refunds); },
     };
     const invTable = (el, rows, div) => dataTable(el, rows, [{ k: 'inv_no', label: 'Invoice', f: r => `<b>${esc(r.inv_no || 'Draft #' + r.id)}</b>` }, { k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'grand_total', label: 'Total', n: 1, f: r => tk(r.grand_total) }, { k: 'paid', label: 'Paid', n: 1, f: r => tk(r.paid) }, { k: 'due', label: 'Due', n: 1, f: r => tk(r.due) }, { k: 'status', label: 'Status', f: r => statusTag(r.status) }, { k: 'created_by_name', label: 'Created by' }], { onRow: r => App.go(`${div}-invoices/${r.id}`) });
     $$('[data-t]', v).forEach(b => b.onclick = () => { $$('[data-t]', v).forEach(x => x.classList.toggle('on', x === b)); pane.classList.remove('tabpane'); void pane.offsetWidth; pane.classList.add('tabpane'); tabs[b.dataset.t](); });
     tabs.ledger();
     if ($('#ed', v)) $('#ed', v).onclick = () => customerModal(c, () => App.refresh());
     if ($('#cdel', v)) $('#cdel', v).onclick = () => masterDelete('/api/customers/' + c.id, c.name, () => App.go('customers'));
-    if ($('#ngi', v)) $('#ngi', v).onclick = () => { App.pages.general.prefill = { customer: c }; App.go('general/new'); };
+    if ($('#ngi', v)) $('#ngi', v).onclick = () => { App.pages['press-orders'].prefill = { customer: c }; App.go('press-orders/new'); };
+    if ($('#crf', v)) $('#crf', v).onclick = () => refundModal({ customer: c, amount: d.credit }, () => App.refresh());
     if ($('#pay', v)) $('#pay', v).onclick = () => paymentModal({ customer: c }, () => App.refresh());
     if ($('#nci', v)) $('#nci', v).onclick = () => { App.pages['ctp-invoices'].prefill = { customer: c }; App.go('ctp-invoices/new'); };
     if ($('#npi', v)) $('#npi', v).onclick = () => { App.pages['pvc-invoices'].prefill = { customer: c }; App.go('pvc-invoices/new'); };
@@ -145,14 +188,16 @@ App.pages.accounts = {
     const [from, to] = this.range || periodRange('month');
     const s = await GET('/api/accounts/summary', { from, to });
     const R = s.receivables;
-    v.innerHTML = `<div class="head"><div class="row">${periodChips(this.p || 'month', ['today', 'week', 'month', 'year'])}</div>${can('payments') ? `<button class="btn green" id="rp">${ICON.money} Receive payment</button>` : ''}</div>
+    v.innerHTML = `<div class="head"><div class="row">${periodChips(this.p || 'month', ['today', 'week', 'month', 'year'])}</div><div class="row">${can('refunds') ? `<button class="btn ghost" id="rf">Refund money</button>` : ''}${can('payments') ? `<button class="btn green" id="rp">${ICON.money} Receive payment</button>` : ''}</div></div>
       <div class="stats stagger"><div class="stat"><small>CTP outstanding</small><b data-count-to="${R.ctp_due}" data-fmt="tk">0</b><div class="foot">Unpaid CTP invoices</div></div>
         <div class="stat" style="--c:var(--pvc)"><small>PVC outstanding</small><b data-count-to="${R.pvc_due}" data-fmt="tk">0</b><div class="foot">Unpaid PVC invoices</div></div>
+        <div class="stat" style="--c:#7b5cd6"><small>Press outstanding</small><b data-count-to="${R.press_due}" data-fmt="tk">0</b><div class="foot">Unpaid final invoices</div></div>
         <div class="stat" style="--c:var(--danger)"><small>Combined due</small><b data-count-to="${R.combined_due}" data-fmt="tk">0</b><div class="foot">incl. opening ${tk(R.opening)} − advances</div></div>
         <div class="stat" style="--c:var(--ok)"><small>Collected (period)</small><b data-count-to="${s.collection.total}" data-fmt="tk">0</b><div class="foot">CTP ${tk(s.collection.ctp)} · PVC ${tk(s.collection.pvc)}</div></div></div>
-      <div class="tabs">${[['overview', 'Outstanding'], ['payments', 'Payments'], ['ledger', 'Customer Ledger']].map(([k, l]) => `<button data-t="${k}" class="${k === this.tab ? 'on' : ''}">${l}</button>`).join('')}</div><div id="pane" class="tabpane"></div>`;
+      <div class="tabs">${[['overview', 'Outstanding'], ['payments', 'Payments'], ['refunds', 'Refunds'], ['ledger', 'Customer Ledger']].map(([k, l]) => `<button data-t="${k}" class="${k === this.tab ? 'on' : ''}">${l}</button>`).join('')}</div><div id="pane" class="tabpane"></div>`;
     $$('[data-period]', v).forEach(b => b.onclick = () => { this.p = b.dataset.period; this.range = periodRange(this.p); App.refresh(); });
     if ($('#rp', v)) $('#rp', v).onclick = () => paymentModal({}, () => App.refresh());
+    if ($('#rf', v)) $('#rf', v).onclick = () => refundModal({}, () => App.refresh());
     $$('[data-t]', v).forEach(b => b.onclick = () => { this.tab = b.dataset.t; App.refresh(); });
     const pane = $('#pane', v);
     if (this.tab === 'overview') {
@@ -164,6 +209,9 @@ App.pages.accounts = {
       pane.innerHTML = `<div class="panel"><div class="head"><div class="sub">${fdate(from)} → ${fdate(to)}</div><button class="btn sm ghost" id="px">${ICON.excel} Excel</button></div><div id="t1"></div></div>`;
       payTable($('#t1', pane), await GET('/api/payments', { from, to }));
       $('#px', pane).onclick = () => exportXlsx('Payments', [`${fdate(from)} to ${fdate(to)}`], [tableToSheet('Payments', $('#pay-t', pane))]);
+    } else if (this.tab === 'refunds') {
+      pane.innerHTML = `<div class="panel"><div class="head"><div class="sub">${fdate(from)} → ${fdate(to)} · money returned to customers (cancelled orders, extra advance)</div></div><div id="t1"></div></div>`;
+      refundTable($('#t1', pane), await GET('/api/refunds', { from, to }));
     } else {
       pane.innerHTML = `<div class="panel"><div class="field" style="max-width:420px">Customer<div id="lc"></div></div></div><div id="lv"></div>`;
       custPicker($('#lc', pane), { allowAdd: false, onPick: c => c ? ledgerView($('#lv', pane), c.id) : ($('#lv', pane).innerHTML = '') });

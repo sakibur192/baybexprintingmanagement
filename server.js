@@ -13,6 +13,7 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 const { AsyncLocalStorage } = require('async_hooks');
 const QRCode = require('qrcode');
+const PRESS = require('./press');
 
 /* ============================== CONFIG ============================== */
 const CONFIG = {
@@ -74,21 +75,26 @@ const PERMS = {
   'stock.adjust': 'Stock adjustments / void entries', 'challan.standalone': 'Standalone challan (no invoice)',
   'fit.override': 'Override PVC fit check', 'date.edit': 'Back-date entries',
   'users': 'Users & roles', 'settings': 'Settings', 'backup': 'Backup & restore', 'audit': 'Audit log', 'billing': 'Subscription & billing',
+  ...PRESS.PERMS,
 };
+for (const k of ['general.view', 'general.invoice', 'general.stock', 'general.items']) delete PERMS[k];   // old "General" section now lives inside Printing Press + Store
+PERMS['internal'] = 'Store: internal use items (solvent, wash, developer…)';
 const ALL = Object.keys(PERMS);
 const DEFAULT_ROLES = {
   'Admin': ALL,
-  'Manager': ['dashboard', 'ctp.view', 'pvc.view', 'ink', 'general.view', 'internal', 'customers.view', 'accounts.view', 'reports', 'reports.employee', 'audit'],
-  'Accountant': ['dashboard', 'ctp.view', 'pvc.view', 'ctp.invoice', 'pvc.invoice', 'customers.view', 'customers.edit', 'payments', 'expenses', 'accounts.view', 'reports', 'general.view', 'general.invoice'],
+  'Manager': ['dashboard', 'ctp.view', 'pvc.view', 'ink', 'internal', 'press.view', 'press.orders', 'press.orders.all', 'press.design', 'press.production', 'press.store', 'press.delivery', 'press.invoice', 'press.invoice.void', 'press.costing', 'press.machines', 'press.suppliers', 'customers.edit', 'customers.view', 'accounts.view', 'reports', 'reports.employee', 'audit'],
+  'Accountant': ['dashboard', 'ctp.view', 'pvc.view', 'ctp.invoice', 'pvc.invoice', 'customers.view', 'customers.edit', 'payments', 'expenses', 'accounts.view', 'reports', 'press.view', 'press.orders.all', 'press.invoice', 'press.costing', 'refunds'],
+  'Marketing Officer': ['customers.view', 'customers.edit', 'press.view', 'press.orders', 'payments'],
+  'Store Staff': ['press.view', 'press.store', 'press.orders.all', 'internal', 'press.suppliers'],
   'CTP Operator': ['dashboard', 'ctp.view', 'ctp.production', 'ctp.ownuse', 'ctp.invoice', 'ctp.challan', 'customers.view', 'customers.edit', 'internal'],
-  'PVC Operator': ['dashboard', 'pvc.view', 'pvc.stockin', 'pvc.print', 'pvc.wastage', 'pvc.invoice', 'pvc.challan', 'ink', 'customers.view', 'customers.edit', 'internal', 'general.view', 'general.invoice', 'general.stock'],
-  'Designer': ['dashboard', 'pvc.view', 'pvc.print', 'pvc.invoice', 'ctp.view', 'ctp.invoice', 'customers.view', 'customers.edit'],
+  'PVC Operator': ['dashboard', 'pvc.view', 'pvc.stockin', 'pvc.print', 'pvc.wastage', 'pvc.invoice', 'pvc.challan', 'ink', 'customers.view', 'customers.edit', 'internal'],
+  'Designer': ['dashboard', 'pvc.view', 'pvc.print', 'pvc.invoice', 'ctp.view', 'ctp.invoice', 'customers.view', 'customers.edit', 'press.view', 'press.design', 'press.orders.all'],
 };
 /* tenant-editable dropdown lists (defaults) */
 const DEFAULT_LISTS = {
   payment_methods: ['Cash', 'Bank', 'bKash', 'Nagad', 'Rocket', 'Cheque', 'Other'],
   wastage_reasons: ['Cutting', 'Printing Error', 'Machine Error', 'Design Error', 'Media Damage', 'Other'],
-  expense_categories: ['Rent', 'Salary', 'Electricity', 'Transport', 'Machine Maintenance', 'Raw Material', 'Chemical', 'Entertainment', 'Office', 'Other'],
+  expense_categories: ['Paper Purchase', 'Ink Purchase', 'Plate Cost', 'Labour Cost', 'Salary', 'Rent', 'Electricity', 'Machine Maintenance', 'Outsourcing Cost', 'Transport', 'Office Expense', 'Chemical', 'Raw Material', 'Entertainment', 'Other Expenses'],
   ink_colors: ['Cyan', 'Magenta', 'Yellow', 'Black'],
   lamination_machines: ['PVC Lamination Machine', 'Normal Lamination Machine'],
   lamination_finishes: ['Glossy', 'Matte', 'Velvet'],
@@ -238,6 +244,7 @@ const DEFAULT_GENERAL = {
   ink_bottle_liters: 1,
   ink_palette: {},
 };
+const FULL_SCHEMA = () => SCHEMA + PRESS.SCHEMA;
 const SEED_PRODUCTS = [
   ['Mini Plate', 'Mini', '400 x 510 mm', '14.75" x 20.07"', 260, 1],
   ['Short Demy Plate', 'Short Kord', '508 x 570 mm', '20.00" x 22.44"', 0, 2],
@@ -432,10 +439,21 @@ async function migrateTenant(t, seed) {
     await c.query(`CREATE SCHEMA IF NOT EXISTS "${t.schema_name}"`);
     await c.query('BEGIN');
     await c.query(`SET LOCAL search_path TO "${t.schema_name}"`);
-    await c.query(SCHEMA);
+    await c.query(FULL_SCHEMA());
     for (const [name, perms] of Object.entries(DEFAULT_ROLES))
       await c.query(`INSERT INTO roles(name, permissions, system) VALUES($1,$2,true) ON CONFLICT(name) DO NOTHING`, [name, JSON.stringify(perms)]);
     await c.query(`UPDATE roles SET permissions=$1 WHERE name='Admin'`, [JSON.stringify(ALL)]);   // Admin always has every permission
+    if (!(await c.query(`SELECT 1 FROM settings WHERE key='migr_press_v1'`)).rowCount) {
+      // one time: give existing system roles their Printing Press permissions, add the PDF expense categories
+      for (const [name, perms] of Object.entries(DEFAULT_ROLES)) {
+        const r = (await c.query(`SELECT permissions FROM roles WHERE name=$1 AND system`, [name])).rows[0]; if (!r) continue;
+        const add = perms.filter(p => p.startsWith('press.') || p === 'refunds' || p === 'internal');
+        await c.query(`UPDATE roles SET permissions=$1 WHERE name=$2`, [JSON.stringify([...new Set([...(r.permissions || []).filter(p => !p.startsWith('general.')), ...add])]), name]);
+      }
+      const L = (await c.query(`SELECT value FROM settings WHERE key='lists'`)).rows[0]?.value;
+      if (L) { L.expense_categories = [...new Set([...(L.expense_categories || []), ...DEFAULT_LISTS.expense_categories])]; await c.query(`UPDATE settings SET value=$1 WHERE key='lists'`, [JSON.stringify(L)]); }
+      await c.query(`INSERT INTO settings(key,value) VALUES('migr_press_v1','true')`);
+    }
     if (seed) {
       for (const p of SEED_PRODUCTS)
         await c.query(`INSERT INTO ctp_products(name, alias, size_mm, size_in, current_rate, sort) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(name) DO NOTHING`, [...p.slice(0, 4), 0, p[5]]);
@@ -446,7 +464,7 @@ async function migrateTenant(t, seed) {
     if (!(await c.query(`SELECT 1 FROM gen_items WHERE kind='internal' LIMIT 1`)).rowCount)
       for (const [i, [name, unit, low]] of [['PVC Solvent', 'Ltr', 5], ['CTP Wash', 'Ltr', 5], ['CTP Developer', 'Ltr', 5], ['Filter Paper', 'Pcs', 10]].entries())
         await c.query(`INSERT INTO gen_items(kind,name,unit,low_stock,sort) VALUES('internal',$1,$2,$3,$4)`, [name, unit, low, i + 1]);
-    for (const [k, prefix] of [['ctp_inv', 'CTP-INV-'], ['pvc_inv', 'PVC-INV-'], ['gen_inv', 'GEN-INV-'], ['ctp_dc', 'CTP-DC-'], ['pvc_dc', 'PVC-DC-'], ['receipt', 'MR-']])
+    for (const [k, prefix] of [['ctp_inv', 'CTP-INV-'], ['pvc_inv', 'PVC-INV-'], ['gen_inv', 'GEN-INV-'], ['ctp_dc', 'CTP-DC-'], ['pvc_dc', 'PVC-DC-'], ['receipt', 'MR-'], ...PRESS.SEQUENCES])
       await c.query(`INSERT INTO invoice_sequences(key, prefix) VALUES($1,$2) ON CONFLICT DO NOTHING`, [k, prefix]);
     const defaults = { ...DEFAULT_SETTINGS, lists: DEFAULT_LISTS };
     if (seed) defaults.company = { ...DEFAULT_SETTINGS.company, ...seed.company };
@@ -489,10 +507,17 @@ async function idem(c, req) {
   const r = await c.query(`INSERT INTO idem_keys(key) VALUES($1) ON CONFLICT DO NOTHING RETURNING key`, [k]);
   if (!r.rowCount) bad('This entry was already submitted (duplicate prevented).', 409);
 }
+/** entry date for any record. Staff may enter past dates (after a power / internet cut they enter from the paper register)
+ *  up to N days back (Settings → Printing Press → back-date days); older dates need the "Back-date entries" permission. Future dates are never allowed. */
 function entryDate(req, d) {
-  if (!d) return today();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) bad('Invalid date');
-  if (d !== today() && !req.user.perms.includes('date.edit')) bad('You are not allowed to change the entry date (requires "Back-date entries" permission).', 403);
+  const t = today();
+  if (!d) return t;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || isNaN(Date.parse(d + 'T00:00:00Z')) || new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) !== d) bad(`Invalid date: ${d}`);
+  if (d > t) bad(`Date ${d} is in the future. Today is ${t}.`);
+  if (d === t || req.user.perms.includes('date.edit')) return d;
+  const days = Math.round((Date.parse(t + 'T00:00:00Z') - Date.parse(d + 'T00:00:00Z')) / 86400000);
+  const lim = req.user.backdate_days == null ? 31 : +req.user.backdate_days;
+  if (days > lim) bad(`You can enter dates up to ${lim} days back. ${d} is ${days} days ago — ask an admin (needs "Back-date entries" permission).`, 403);
   return d;
 }
 const num = (v, name, { min = 0, int = false, allowZero = false } = {}) => {
@@ -580,7 +605,8 @@ const auth = (req, res, next) => {
   })().then(ses => {
     if (!ses) return next(new AppError('Please log in', 401));
     inTenant(ses.tenant, () => {
-      q1(`SELECT u.id,u.username,u.full_name,u.nickname,u.phone,u.active,r.name role_name,r.permissions perms FROM users u LEFT JOIN roles r ON r.id=u.role_id WHERE u.id=$1`, [ses.user_id])
+      q1(`SELECT u.id,u.username,u.full_name,u.nickname,u.phone,u.active,r.name role_name,r.permissions perms,
+          (SELECT (value->>'backdate_days')::int FROM settings WHERE key='press') backdate_days FROM users u LEFT JOIN roles r ON r.id=u.role_id WHERE u.id=$1`, [ses.user_id])
         .then(u => {
           if (!u || !u.active) return next(new AppError('Please log in', 401));
           u.perms = u.perms || [];
@@ -664,11 +690,14 @@ app.get('/api/meta', wrap(async (req, res) => {
 }));
 
 /* ---------- customers ---------- */
+const PAID_SQL = div => `COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='${div}' AND a.invoice_id=i.id AND NOT p.voided),0)`;
 const CUST_BAL = `
   c.opening_balance
   + COALESCE((SELECT SUM(grand_total) FROM ctp_invoices WHERE customer_id=c.id AND status='confirmed'),0)
   + COALESCE((SELECT SUM(grand_total) FROM pvc_invoices WHERE customer_id=c.id AND status='confirmed'),0)
   + COALESCE((SELECT SUM(grand_total) FROM gen_invoices WHERE customer_id=c.id AND status='confirmed'),0)
+  + COALESCE((SELECT SUM(grand_total) FROM press_invoices WHERE customer_id=c.id AND status='final'),0)
+  + COALESCE((SELECT SUM(amount) FROM refunds WHERE customer_id=c.id AND NOT voided),0)
   - COALESCE((SELECT SUM(amount) FROM payments WHERE customer_id=c.id AND NOT voided),0)`;
 
 app.get('/api/customers/search', can('customers.view', 'ctp.invoice', 'pvc.invoice', 'pvc.print', 'payments'), wrap(async (req, res) => {
@@ -696,9 +725,9 @@ app.post('/api/customers', can('customers.edit'), wrap(async (req, res) => {
   if (!name) bad('Customer name is required');
   const out = await tx(async c => {
     if (!b.force) { const d = await dupCheck(c, { name, phone: b.phone }); if (d) { const e = new AppError(`A similar customer already exists: ${d.name}${d.phone ? ' (' + d.phone + ')' : ''}`, 409); e.existing = d; throw e; } }
-    const r = (await c.query(`INSERT INTO customers(name,company,contact_person,phone,address,email,opening_balance,remarks,created_by,created_by_name,created_role)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`, [name, str(b.company), str(b.contact_person), str(b.phone, 40), str(b.address), str(b.email), r2(b.opening_balance), str(b.remarks),
-      req.user.id, req.user.full_name, req.user.role_name])).rows[0];
+    const r = (await c.query(`INSERT INTO customers(name,company,contact_person,phone,address,email,opening_balance,remarks,created_by,created_by_name,created_role,customer_type)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, [name, str(b.company), str(b.contact_person), str(b.phone, 40), str(b.address), str(b.email), r2(b.opening_balance), str(b.remarks),
+      req.user.id, req.user.full_name, req.user.role_name, str(b.customer_type, 60)])).rows[0];
     await audit(c, req.user, 'create', 'customer', r.id, { name });
     return r;
   });
@@ -712,8 +741,8 @@ app.put('/api/customers/:id', can('customers.edit'), wrap(async (req, res) => {
     if (!old) bad('Customer not found', 404);
     if (!b.force) { const d = await dupCheck(c, { name, phone: b.phone }, old.id); if (d) bad(`Another customer has the same name/phone: ${d.name}`, 409); }
     const r = (await c.query(`UPDATE customers SET name=$1,company=$2,contact_person=$3,phone=$4,address=$5,email=$6,opening_balance=$7,remarks=$8,active=$9,
-      updated_by=$10,updated_by_name=$11,updated_at=now() WHERE id=$12 RETURNING *`, [name, str(b.company), str(b.contact_person), str(b.phone, 40), str(b.address), str(b.email),
-      r2(b.opening_balance), str(b.remarks), b.active !== false, req.user.id, req.user.full_name, old.id])).rows[0];
+      updated_by=$10,updated_by_name=$11,updated_at=now(), customer_type=$13 WHERE id=$12 RETURNING *`, [name, str(b.company), str(b.contact_person), str(b.phone, 40), str(b.address), str(b.email),
+      r2(b.opening_balance), str(b.remarks), b.active !== false, req.user.id, req.user.full_name, old.id, b.customer_type === undefined ? old.customer_type : str(b.customer_type, 60)])).rows[0];
     await audit(c, req.user, 'update', 'customer', old.id, { before: old, after: r });
     return r;
   });
@@ -723,7 +752,8 @@ app.delete('/api/customers/:id', can('customers.edit'), wrap(async (req, res) =>
   res.json(await tx(async c => {
     const cu = (await c.query(`SELECT * FROM customers WHERE id=$1 FOR UPDATE`, [req.params.id])).rows[0]; if (!cu) bad('Customer not found', 404);
     const used = (await c.query(`SELECT 'invoice' k FROM ctp_invoices WHERE customer_id=$1 UNION ALL SELECT 'invoice' FROM pvc_invoices WHERE customer_id=$1 UNION ALL SELECT 'invoice' FROM gen_invoices WHERE customer_id=$1
-      UNION ALL SELECT 'payment' FROM payments WHERE customer_id=$1 UNION ALL SELECT 'challan' FROM challans WHERE customer_id=$1 UNION ALL SELECT 'print entry' FROM pvc_print_entries WHERE customer_id=$1 LIMIT 1`, [cu.id])).rows[0];
+      UNION ALL SELECT 'payment' FROM payments WHERE customer_id=$1 UNION ALL SELECT 'challan' FROM challans WHERE customer_id=$1 UNION ALL SELECT 'print entry' FROM pvc_print_entries WHERE customer_id=$1
+      UNION ALL SELECT 'order' FROM press_orders WHERE customer_id=$1 UNION ALL SELECT 'refund' FROM refunds WHERE customer_id=$1 UNION ALL SELECT 'material' FROM press_cust_materials WHERE customer_id=$1 LIMIT 1`, [cu.id])).rows[0];
     if (used) bad(`${cu.name} has ${used.k}s on record, so it cannot be deleted (that would break the ledger). Untick "Active" to hide this customer instead.`, 409);
     await c.query(`DELETE FROM customers WHERE id=$1`, [cu.id]);
     await audit(c, req.user, 'delete', 'customer', cu.id, { name: cu.name, phone: cu.phone });
@@ -748,7 +778,15 @@ app.get('/api/customers/:id', can('customers.view'), wrap(async (req, res) => {
   const unallocated = r2(payments.filter(p => !p.voided).reduce((s, p) => s + p.amount - p.allocated, 0));
   const gen = await q(`SELECT i.*, ${PAID_SQL('gen')} paid FROM gen_invoices i WHERE customer_id=$1 ORDER BY date DESC, id DESC LIMIT 300`, [id]);
   for (const i of gen) i.due = i.status === 'confirmed' ? r2(i.grand_total - i.paid) : 0;
-  res.json({ customer: cust, ctp, pvc, gen, gen_due: r2(gen.reduce((s, i) => s + i.due, 0)), payments, ctpItems, pvcItems, unallocated,
+  const [orders, press, refunds] = await Promise.all([
+    q(`SELECT o.*, (SELECT string_agg(product, ', ') FROM press_items WHERE order_id=o.id AND NOT cancelled) products, (SELECT inv_no FROM press_invoices WHERE order_id=o.id AND status='final') inv_no,
+        (SELECT COALESCE(SUM(amount),0) FROM payments WHERE order_id=o.id AND NOT voided) paid FROM press_orders o WHERE customer_id=$1 ORDER BY date DESC, id DESC LIMIT 300`, [id]),
+    q(`SELECT i.*, ${PAID_SQL('press')} paid, (SELECT order_no FROM press_orders WHERE id=i.order_id) order_no FROM press_invoices i WHERE customer_id=$1 ORDER BY date DESC, id DESC LIMIT 300`, [id]),
+    q(`SELECT * FROM refunds WHERE customer_id=$1 ORDER BY date DESC, id DESC`, [id]),
+  ]);
+  for (const i of press) i.due = i.status === 'final' ? r2(i.grand_total - i.paid) : 0;
+  const credit = r2(unallocated - refunds.filter(r => !r.voided).reduce((s, r) => s + +r.amount, 0));
+  res.json({ customer: cust, ctp, pvc, gen, gen_due: r2(gen.reduce((s, i) => s + i.due, 0)), orders, press, press_due: r2(press.reduce((s, i) => s + i.due, 0)), refunds, credit, payments, ctpItems, pvcItems, unallocated: credit,
     ctp_due: r2(ctp.reduce((s, i) => s + i.due, 0)), pvc_due: r2(pvc.reduce((s, i) => s + i.due, 0)) });
 }));
 app.get('/api/customers/:id/open-invoices', can('payments', 'customers.view'), wrap(async (req, res) => {
@@ -760,7 +798,9 @@ app.get('/api/customers/:id/open-invoices', can('payments', 'customers.view'), w
       FROM pvc_invoices i WHERE customer_id=$1 AND status='confirmed'
     UNION ALL
     SELECT 'gen', i.id, i.inv_no, i.date, i.grand_total, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='gen' AND a.invoice_id=i.id AND NOT p.voided),0)
-      FROM gen_invoices i WHERE customer_id=$1 AND status='confirmed') x WHERE due > 0.004 ORDER BY date, inv_no`, [req.params.id]);
+      FROM gen_invoices i WHERE customer_id=$1 AND status='confirmed'
+    UNION ALL
+    SELECT 'press', i.id, i.inv_no, i.date, i.grand_total, i.grand_total - ${PAID_SQL('press')} FROM press_invoices i WHERE customer_id=$1 AND status='final') x WHERE due > 0.004 ORDER BY date, inv_no`, [req.params.id]);
   res.json(rows);
 }));
 app.get('/api/customers/:id/ledger', can('accounts.view', 'customers.view'), wrap(async (req, res) => {
@@ -775,9 +815,13 @@ app.get('/api/customers/:id/ledger', can('accounts.view', 'customers.view'), wra
     UNION ALL SELECT cancelled_at::date, cancelled_at, 'pvc', 'PVC Invoice Cancelled', inv_no, COALESCE(cancel_reason,''), 0, grand_total, id FROM pvc_invoices WHERE customer_id=$1 AND status='cancelled'
     UNION ALL SELECT date, created_at, 'gen', 'General Invoice', inv_no, COALESCE(remarks,''), grand_total, 0, id FROM gen_invoices WHERE customer_id=$1 AND status IN ('confirmed','cancelled')
     UNION ALL SELECT cancelled_at::date, cancelled_at, 'gen', 'General Invoice Cancelled', inv_no, COALESCE(cancel_reason,''), 0, grand_total, id FROM gen_invoices WHERE customer_id=$1 AND status='cancelled'
-    UNION ALL SELECT p.date, p.created_at, COALESCE((SELECT CASE WHEN COUNT(DISTINCT division)=1 THEN MIN(division) ELSE 'common' END FROM payment_allocations WHERE payment_id=p.id), p.division),
-      'Payment', p.receipt_no, p.method || COALESCE(' · '||p.reference,'') || COALESCE(' · '||p.remarks,''), 0, p.amount, p.id FROM payments p WHERE customer_id=$1 AND NOT voided
-    ORDER BY date, ts`, [id]);
+    UNION ALL SELECT date, created_at, 'press', 'Press Invoice', inv_no, COALESCE((SELECT 'Order '||order_no FROM press_orders WHERE id=order_id),''), grand_total, 0, id FROM press_invoices WHERE customer_id=$1
+    UNION ALL SELECT voided_at::date, voided_at, 'press', 'Press Invoice VOID', inv_no, COALESCE(void_category||': ','')||COALESCE(void_reason,''), 0, grand_total, id FROM press_invoices WHERE customer_id=$1 AND status='void'
+    UNION ALL SELECT date, created_at, CASE WHEN order_id IS NOT NULL THEN 'press' ELSE 'common' END, 'Refund', refund_no, method || ' · ' || reason, amount, 0, id FROM refunds WHERE customer_id=$1 AND NOT voided
+    UNION ALL SELECT p.date, p.created_at, COALESCE((SELECT CASE WHEN COUNT(DISTINCT division)=1 THEN MIN(division) ELSE 'common' END FROM payment_allocations WHERE payment_id=p.id), CASE WHEN p.order_id IS NOT NULL THEN 'press' ELSE p.division END),
+      CASE WHEN p.order_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM payment_allocations WHERE payment_id=p.id) THEN 'Advance' ELSE 'Payment' END, p.receipt_no,
+      p.method || COALESCE(' · '||(SELECT order_no FROM press_orders WHERE id=p.order_id),'') || COALESCE(' · '||p.reference,'') || COALESCE(' · '||p.remarks,''), 0, p.amount, p.id FROM payments p WHERE customer_id=$1 AND NOT voided
+    ORDER BY 1, 2`, [id]);
   let bal = +cust.opening_balance, opening = bal;
   const out = [];
   for (const r of rows) {
@@ -1194,6 +1238,11 @@ app.put('/api/ink/settings', can('ink'), wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/* ============================== PRINTING PRESS (press.js) ============================== */
+const H = { app, q, q1, tx, can, wrap, bad, str, num, r2, audit, idem, nextNo, entryDate, today, lists, getSetting, recordPayment, paidSql: PAID_SQL, express };
+installPress(H);
+function installPress(h) { PRESS(h); }
+
 /* ============================== GENERAL SECTION + INTERNAL INVENTORY ============================== */
 const GEN_KIND_PERM = { lamination: ['general.view', 'general.stock', 'general.invoice'], paper: ['general.view', 'general.stock', 'general.invoice'], internal: ['internal'] };
 const GEN_EDIT_PERM = { lamination: 'general.items', paper: 'general.items', internal: 'internal' };
@@ -1448,6 +1497,10 @@ app.post('/api/gen/invoices/:id/cancel', can('invoice.cancel'), wrap(async (req,
     const freed = (await c.query(`DELETE FROM payment_allocations WHERE division='gen' AND invoice_id=$1 RETURNING amount`, [id])).rows.reduce((s2, r) => s2 + +r.amount, 0);
     await c.query(`UPDATE gen_invoices SET status='cancelled', cancelled_by=$1, cancelled_by_name=$2, cancelled_at=now(), cancel_reason=$3 WHERE id=$4`, [u.id, u.full_name, reason, id]);
     await audit(c, u, 'cancel', 'gen_invoice', id, { inv_no: inv.inv_no, reason, reversed_movements: mv.length, payments_released_as_credit: r2(freed) });
+    if (+req.body.refund?.amount > 0) {
+      if (!u.perms.includes('refunds')) bad('You do not have permission to refund money', 403);
+      await H.createRefund(c, req, { customer_id: inv.customer_id, amount: req.body.refund.amount, method: req.body.refund.method, date: req.body.refund.date, reason: `${inv.inv_no} cancelled: ${reason}`, related: inv.inv_no });
+    }
     return getGenInvoice(c, id);
   }));
 }));
@@ -1463,7 +1516,6 @@ app.get('/api/gen/summary', can('general.view', 'general.invoice', 'general.stoc
 
 /* ============================== INVOICES ============================== */
 const DIV = d => { if (d !== 'ctp' && d !== 'pvc') bad('Unknown division', 404); return d; };
-const PAID_SQL = div => `COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='${div}' AND a.invoice_id=i.id AND NOT p.voided),0)`;
 
 app.get('/api/:div/invoices', wrap(async (req, res) => {
   const div = DIV(req.params.div);
@@ -1562,10 +1614,12 @@ async function saveItems(c, div, invoiceId, items) {
       [invoiceId, it.media_id, it.art_w, it.art_l, it.qty, it.orientation, it.across, it.sqft, it.rate, it.line_total, it.used_length, it.wastage_length, it.wastage_reason, it.fit_status, it.override_reason, it.print_entry_id, it.description, it.kind || 'sqft']);
   }
 }
-async function recordPayment(c, u, { date, customer_id, amount, method, reference, remarks, division, allocations }) {
+const nowTime = () => new Intl.DateTimeFormat('en-GB', { timeZone: CONFIG.timezone, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+const cleanTime = t => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(t || '')) ? t : null);
+async function recordPayment(c, u, { date, time, customer_id, amount, method, reference, remarks, division, allocations, order_id }) {
   const receipt_no = await nextNo(c, 'receipt');
-  const p = (await c.query(`INSERT INTO payments(receipt_no,date,customer_id,amount,method,reference,division,remarks,created_by,created_by_name,created_role)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`, [receipt_no, date, customer_id, r2(amount), method || 'Cash', reference || null, division || 'common', remarks || null, u.id, u.full_name, u.role_name])).rows[0];
+  const p = (await c.query(`INSERT INTO payments(receipt_no,date,customer_id,amount,method,reference,division,remarks,created_by,created_by_name,created_role,order_id,time)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`, [receipt_no, date, customer_id, r2(amount), method || 'Cash', reference || null, division || 'common', remarks || null, u.id, u.full_name, u.role_name, order_id || null, cleanTime(time) || (date === today() ? nowTime() : null)])).rows[0];
   for (const a of allocations || []) if (a.amount > 0)
     await c.query(`INSERT INTO payment_allocations(payment_id,division,invoice_id,amount,created_by,created_by_name) VALUES($1,$2,$3,$4,$5,$6)`, [p.id, a.division, a.invoice_id, r2(a.amount), u.id, u.full_name]);
   return p;
@@ -1682,6 +1736,10 @@ app.post('/api/:div/invoices/:id/cancel', can('invoice.cancel'), wrap(async (req
     await c.query(`UPDATE challans SET status='cancelled' WHERE division=$1 AND invoice_id=$2`, [div, id]);
     await c.query(`UPDATE ${div}_invoices SET status='cancelled', cancelled_by=$1, cancelled_by_name=$2, cancelled_at=now(), cancel_reason=$3 WHERE id=$4`, [u.id, u.full_name, reason, id]);
     await audit(c, u, 'cancel', div + '_invoice', id, { inv_no: inv.inv_no, reason, reversed_movements: mv.length, payments_released_as_credit: r2(freed) });
+    if (+req.body.refund?.amount > 0) {
+      if (!u.perms.includes('refunds')) bad('You do not have permission to refund money', 403);
+      await H.createRefund(c, req, { customer_id: inv.customer_id, amount: req.body.refund.amount, method: req.body.refund.method, date: req.body.refund.date, reason: `${inv.inv_no} cancelled: ${reason}`, related: inv.inv_no });
+    }
     return getInvoice(c, div, id);
   }));
 }));
@@ -1795,8 +1853,9 @@ app.post('/api/:div/challans/:id/cancel', wrap(async (req, res) => {
 app.get('/api/payments', can('payments', 'accounts.view'), wrap(async (req, res) => {
   const { from = '1900-01-01', to = '2999-12-31', q: s = '', customer = '', created_by = '' } = req.query;
   res.json(await q(`SELECT p.*, c.name customer, COALESCE((SELECT SUM(amount) FROM payment_allocations WHERE payment_id=p.id),0) allocated,
-      (SELECT string_agg(CASE a.division WHEN 'ctp' THEN ci.inv_no WHEN 'gen' THEN gi.inv_no ELSE pi.inv_no END, ', ') FROM payment_allocations a LEFT JOIN ctp_invoices ci ON a.division='ctp' AND ci.id=a.invoice_id
-        LEFT JOIN pvc_invoices pi ON a.division='pvc' AND pi.id=a.invoice_id LEFT JOIN gen_invoices gi ON a.division='gen' AND gi.id=a.invoice_id WHERE a.payment_id=p.id) invoices
+      (SELECT string_agg(CASE a.division WHEN 'ctp' THEN ci.inv_no WHEN 'gen' THEN gi.inv_no WHEN 'press' THEN xi.inv_no ELSE pi.inv_no END, ', ') FROM payment_allocations a LEFT JOIN ctp_invoices ci ON a.division='ctp' AND ci.id=a.invoice_id
+        LEFT JOIN pvc_invoices pi ON a.division='pvc' AND pi.id=a.invoice_id LEFT JOIN gen_invoices gi ON a.division='gen' AND gi.id=a.invoice_id LEFT JOIN press_invoices xi ON a.division='press' AND xi.id=a.invoice_id WHERE a.payment_id=p.id) invoices,
+        (SELECT order_no FROM press_orders WHERE id=p.order_id) order_no
     FROM payments p JOIN customers c ON c.id=p.customer_id
     WHERE p.date BETWEEN $1 AND $2 AND ($3='' OR p.customer_id=$3::int) AND ($4='' OR p.created_by=$4::int)
       AND ($5='' OR lower(c.name||' '||COALESCE(p.receipt_no,'')||' '||COALESCE(p.reference,'')||' '||COALESCE(p.method,'')) LIKE '%'||lower($5)||'%')
@@ -1807,6 +1866,7 @@ async function allocate(c, customer_id, amount, allocations, auto, autoDivision)
       SELECT 'ctp' division, i.id, i.inv_no, i.date, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='ctp' AND a.invoice_id=i.id AND NOT p.voided),0) due FROM ctp_invoices i WHERE customer_id=$1 AND status='confirmed'
       UNION ALL SELECT 'pvc', i.id, i.inv_no, i.date, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='pvc' AND a.invoice_id=i.id AND NOT p.voided),0) FROM pvc_invoices i WHERE customer_id=$1 AND status='confirmed'
       UNION ALL SELECT 'gen', i.id, i.inv_no, i.date, i.grand_total - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a JOIN payments p ON p.id=a.payment_id WHERE a.division='gen' AND a.invoice_id=i.id AND NOT p.voided),0) FROM gen_invoices i WHERE customer_id=$1 AND status='confirmed'
+      UNION ALL SELECT 'press', i.id, i.inv_no, i.date, i.grand_total - ${PAID_SQL('press')} FROM press_invoices i WHERE customer_id=$1 AND status='final'
     ) x WHERE due > 0.004 ORDER BY date, id`, [customer_id])).rows;
   const out = []; let left = r2(amount);
   if (auto) {
@@ -1829,9 +1889,21 @@ app.post('/api/payments', can('payments'), wrap(async (req, res) => {
   res.json(await tx(async c => {
     await idem(c, req);
     const cust = (await c.query(`SELECT id FROM customers WHERE id=$1 FOR UPDATE`, [b.customer_id])).rows[0]; if (!cust) bad('Select a customer');
+    if (b.time && !cleanTime(b.time)) bad('Invalid time (use HH:MM)');
+    if (+b.order_id) {   // payment against a press order (advance / during work / at delivery / after invoice)
+      const o = (await c.query(`SELECT id, order_no, customer_id, status FROM press_orders WHERE id=$1`, [b.order_id])).rows[0];
+      if (!o || o.customer_id !== cust.id) bad('This order does not belong to the selected customer');
+      if (o.status === 'cancelled') bad('This order is cancelled');
+      const inv = (await c.query(`SELECT i.id, i.grand_total - ${PAID_SQL('press')} due FROM press_invoices i WHERE order_id=$1 AND status='final'`, [o.id])).rows[0];
+      const al = inv && +inv.due > 0 ? [{ division: 'press', invoice_id: inv.id, amount: r2(Math.min(amount, +inv.due)) }] : [];
+      const p = await recordPayment(c, u, { date, time: b.time, customer_id: cust.id, amount, method: b.method, reference: str(b.reference), remarks: str(b.remarks) || (inv ? null : 'Advance for ' + o.order_no), division: 'press', allocations: al, order_id: o.id });
+      await c.query(`INSERT INTO press_activity(order_id,kind,text,by_name) VALUES($1,'payment',$2,$3)`, [o.id, `Payment ${p.receipt_no} ৳${r2(amount)} (${b.method})${inv ? '' : ' — advance, applied when the final invoice is made'}`, u.full_name]);
+      await audit(c, u, 'create', 'payment', p.id, { amount, order: o.order_no });
+      return { ...p, allocations: al, unallocated: r2(amount - al.reduce((s, a) => s + a.amount, 0)) };
+    }
     const al = await allocate(c, cust.id, amount, b.allocations, b.auto !== false && !(b.allocations || []).length, b.division);
     const divs = [...new Set(al.map(a => a.division))];
-    const p = await recordPayment(c, u, { date, customer_id: cust.id, amount, method: b.method, reference: str(b.reference), remarks: str(b.remarks), division: divs.length === 1 ? divs[0] : (b.division && b.division !== 'all' ? b.division : 'common'), allocations: al });
+    const p = await recordPayment(c, u, { date, time: b.time, customer_id: cust.id, amount, method: b.method, reference: str(b.reference), remarks: str(b.remarks), division: divs.length === 1 ? divs[0] : (b.division && b.division !== 'all' ? b.division : 'common'), allocations: al });
     await audit(c, u, 'create', 'payment', p.id, { amount, allocations: al });
     return { ...p, allocations: al, unallocated: r2(amount - al.reduce((s, a) => s + a.amount, 0)) };
   }));
@@ -1852,6 +1924,8 @@ app.post('/api/payments/:id/void', can('invoice.cancel'), wrap(async (req, res) 
   res.json(await tx(async c => {
     const p = (await c.query(`SELECT * FROM payments WHERE id=$1 FOR UPDATE`, [req.params.id])).rows[0];
     if (!p || p.voided) bad('Payment not found / already voided');
+    const free = r2(+p.amount - +(await c.query(`SELECT COALESCE(SUM(amount),0) v FROM payment_allocations WHERE payment_id=$1`, [p.id])).rows[0].v);
+    if (free > 0 && H.customerCredit && (await H.customerCredit(c, p.customer_id)) - free < -0.004) bad('Part of this payment was already refunded. Void the refund first.');
     await c.query(`UPDATE payments SET voided=true, void_reason=$1 WHERE id=$2`, [reason, p.id]);
     await audit(c, req.user, 'void', 'payment', p.id, { amount: p.amount, reason });
     return { ok: true };
@@ -1881,8 +1955,10 @@ async function receivables() {
      COALESCE((SELECT SUM(i.grand_total - ${PAID_SQL('ctp')}) FROM ctp_invoices i WHERE status='confirmed'),0) ctp_due,
      COALESCE((SELECT SUM(i.grand_total - ${PAID_SQL('pvc')}) FROM pvc_invoices i WHERE status='confirmed'),0) pvc_due,
      COALESCE((SELECT SUM(i.grand_total - ${PAID_SQL('gen')}) FROM gen_invoices i WHERE status='confirmed'),0) gen_due,
+     COALESCE((SELECT SUM(i.grand_total - ${PAID_SQL('press')}) FROM press_invoices i WHERE status='final'),0) press_due,
      COALESCE((SELECT SUM(opening_balance) FROM customers),0) opening,
-     COALESCE((SELECT SUM(p.amount - COALESCE((SELECT SUM(amount) FROM payment_allocations WHERE payment_id=p.id),0)) FROM payments p WHERE NOT voided),0) unallocated,
+     COALESCE((SELECT SUM(p.amount - COALESCE((SELECT SUM(amount) FROM payment_allocations WHERE payment_id=p.id),0)) FROM payments p WHERE NOT voided),0)
+       - COALESCE((SELECT SUM(amount) FROM refunds WHERE NOT voided),0) unallocated,
      COALESCE((SELECT SUM(GREATEST(b,0)) FROM (SELECT (${CUST_BAL}) b FROM customers c) x),0) combined_due,
      COALESCE((SELECT SUM(LEAST(b,0)) FROM (SELECT (${CUST_BAL}) b FROM customers c) x),0) advances`);
   for (const k in r) r[k] = r2(r[k]);
@@ -1912,7 +1988,7 @@ app.get('/api/dashboard', can('dashboard'), wrap(async (req, res) => {
                (SELECT COUNT(*) FROM pvc_invoices WHERE status='confirmed' AND date BETWEEN $1 AND $2)::int pvc_n,
                COALESCE((SELECT SUM(ii.qty) FROM ctp_invoice_items ii JOIN ctp_invoices i ON i.id=ii.invoice_id WHERE i.status='confirmed' AND i.date BETWEEN $1 AND $2),0)::int plates,
                COALESCE((SELECT SUM(ii.sqft) FROM pvc_invoice_items ii JOIN pvc_invoices i ON i.id=ii.invoice_id WHERE i.status='confirmed' AND i.date BETWEEN $1 AND $2),0) sqft`, [from, to]),
-    q1(`SELECT COALESCE(SUM(amount),0) v FROM payments WHERE NOT voided AND date BETWEEN $1 AND $2`, [from, to]),
+    q1(`SELECT COALESCE(SUM(amount),0) - COALESCE((SELECT SUM(amount) FROM refunds WHERE NOT voided AND date BETWEEN $1 AND $2),0) v FROM payments WHERE NOT voided AND date BETWEEN $1 AND $2`, [from, to]),
     q1(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE NOT voided AND date BETWEEN $1 AND $2`, [from, to]),
     q(`SELECT p.id, p.name, p.alias, p.current_rate, p.low_stock, COALESCE(SUM(m.qty),0)::int balance,
          COALESCE(SUM(m.qty) FILTER (WHERE m.type='production' AND m.date BETWEEN $1 AND $2),0)::int production,
@@ -1925,22 +2001,28 @@ app.get('/api/dashboard', can('dashboard'), wrap(async (req, res) => {
        FROM pvc_media md LEFT JOIN pvc_stock_movements m ON m.media_id=md.id WHERE md.active GROUP BY md.id ORDER BY md.category, md.width_ft`, [from, to]),
     q(`SELECT color, COALESCE(SUM(pcs),0)::int pcs, COALESCE(SUM(liters),0) liters FROM pvc_ink_stock GROUP BY color`),
     q(`SELECT * FROM (SELECT 'ctp' division, i.id, i.inv_no, i.date, i.grand_total, i.status, c.name customer, i.created_by_name, i.confirmed_at ts FROM ctp_invoices i JOIN customers c ON c.id=i.customer_id WHERE status='confirmed'
-        UNION ALL SELECT 'pvc', i.id, i.inv_no, i.date, i.grand_total, i.status, c.name, i.created_by_name, i.confirmed_at FROM pvc_invoices i JOIN customers c ON c.id=i.customer_id WHERE status='confirmed') x ORDER BY ts DESC LIMIT 8`),
+        UNION ALL SELECT 'pvc', i.id, i.inv_no, i.date, i.grand_total, i.status, c.name, i.created_by_name, i.confirmed_at FROM pvc_invoices i JOIN customers c ON c.id=i.customer_id WHERE status='confirmed'
+        UNION ALL SELECT 'press', i.id, i.inv_no, i.date, i.grand_total, i.status, c.name, i.created_by_name, i.created_at FROM press_invoices i JOIN customers c ON c.id=i.customer_id WHERE status='final') x ORDER BY ts DESC LIMIT 10`),
     q(`SELECT to_char(m, 'YYYY-MM') AS month,
          COALESCE((SELECT SUM(grand_total) FROM ctp_invoices WHERE status='confirmed' AND date_trunc('month',date)=m),0) ctp,
          COALESCE((SELECT SUM(grand_total) FROM pvc_invoices WHERE status='confirmed' AND date_trunc('month',date)=m),0) pvc,
-         COALESCE((SELECT SUM(amount) FROM payments WHERE NOT voided AND date_trunc('month',date)=m),0) collection
+         COALESCE((SELECT SUM(amount) FROM payments WHERE NOT voided AND date_trunc('month',date)=m),0) - COALESCE((SELECT SUM(amount) FROM refunds WHERE NOT voided AND date_trunc('month',date)=m),0) collection
        FROM generate_series(date_trunc('month', $1::date) - interval '11 months', date_trunc('month', $1::date), interval '1 month') m ORDER BY m`, [t]),
     receivables(),
     q1(`SELECT -COALESCE(SUM(qty),0)::int v FROM ctp_stock_movements WHERE type='own_use' AND date BETWEEN $1 AND $2`, [from, to]),
     q1(`SELECT COALESCE(SUM(printed_sqft) FILTER (WHERE NOT voided),0) sqft, COUNT(*) FILTER (WHERE NOT voided)::int n FROM pvc_print_entries WHERE date BETWEEN $1 AND $2`, [from, to]),
     q1(`SELECT (SELECT COUNT(*) FROM customers)::int customers, (SELECT COUNT(*) FROM ctp_invoices WHERE status='draft')::int ctp_drafts, (SELECT COUNT(*) FROM pvc_invoices WHERE status='draft')::int pvc_drafts`),
   ]);
+  const press = await H.pressDashboard(from, to);
+  const gen = await q1(`SELECT COALESCE(SUM(grand_total),0) v, COUNT(*)::int n FROM gen_invoices WHERE status='confirmed' AND date BETWEEN $1 AND $2`, [from, to]);
+  const pressSales = r2(press.sales + +gen.v);
+  for (const m of monthly) { const pm = press.monthly.find(x => x.month === m.month) || {}; m.press = r2(+pm.press || 0); m.expenses = r2(+pm.expenses || 0); m.refunds = r2(+pm.refunds || 0); }
   res.json({
-    from, to, sales: { ...sales, total: r2(sales.ctp + sales.pvc), count: sales.ctp_n + sales.pvc_n }, collection: coll.v, expenses: exp.v, receivables: rec,
+    from, to, sales: { ...sales, press: pressSales, press_n: press.invoices + gen.n, total: r2(sales.ctp + sales.pvc + pressSales), count: sales.ctp_n + sales.pvc_n + press.invoices + gen.n },
+    collection: coll.v, refunds: press.refunds, expenses: exp.v, receivables: rec, press,
     ctp: ctpStock, pvc: pvcStock, ink: (await lists()).ink_colors.map(c => ink.find(i => i.color === c) || { color: c, pcs: 0, liters: 0 }),
     recent, monthly, own_use: ownuse.v, prints, counts,
-    low: { ctp: ctpStock.filter(p => p.balance <= p.low_stock), pvc: pvcStock.filter(m => m.balance > 0 && m.balance <= m.low_stock_ft) },
+    low: { ctp: ctpStock.filter(p => p.balance <= p.low_stock), pvc: pvcStock.filter(m => m.balance > 0 && m.balance <= m.low_stock_ft), store: press.low_store },
   });
 }));
 
@@ -2189,10 +2271,10 @@ app.get('/api/audit', can('audit'), wrap(async (req, res) => {
 
 /* ---------- backup / restore ---------- */
 const BACKUP_TABLES = ['roles', 'users', 'settings', 'invoice_sequences', 'customers', 'ctp_products', 'ctp_prices', 'pvc_media', 'pvc_print_entries', 'ctp_invoices', 'ctp_invoice_items',
-  'pvc_invoices', 'pvc_invoice_items', 'ctp_stock_movements', 'pvc_stock_movements', 'pvc_ink_stock', 'challans', 'challan_items', 'gen_items', 'gen_invoices', 'gen_invoice_items', 'gen_moves', 'payments', 'payment_allocations', 'expenses', 'audit_logs'];
+  'pvc_invoices', 'pvc_invoice_items', 'ctp_stock_movements', 'pvc_stock_movements', 'pvc_ink_stock', 'challans', 'challan_items', 'gen_items', 'gen_invoices', 'gen_invoice_items', 'gen_moves', ...PRESS.TABLES, 'payments', 'payment_allocations', 'refunds', 'expenses', 'audit_logs'];
 app.get('/api/backup', can('backup'), wrap(async (req, res) => {
   const data = { app: 'sks-printers-ubm', version: 1, created_at: new Date().toISOString(), created_by: req.user.full_name, tables: {} };
-  for (const t of BACKUP_TABLES) data.tables[t] = await q(`SELECT * FROM ${t} ORDER BY 1`);
+  for (const t of BACKUP_TABLES) data.tables[t] = await q(t === 'press_design_files' ? `SELECT id, item_id, filename, mime, size, encode(data,'base64') data, uploaded_by_name, uploaded_at FROM ${t} ORDER BY 1` : `SELECT * FROM ${t} ORDER BY 1`);
   await audit(null, req.user, 'backup', 'system', null);
   res.set('Content-Type', 'application/json');
   res.set('Content-Disposition', `attachment; filename="${req.tenant.slug}-backup-${today()}.json"`);
@@ -2212,7 +2294,7 @@ app.post('/api/restore', can('backup'), wrap(async (req, res) => {
       for (const r of rows) {
         const ks = Object.keys(r).filter(k => valid.includes(k));
         await c.query(`INSERT INTO ${t}(${ks.map(k => '"' + k + '"').join(',')}) VALUES(${ks.map((_, i) => '$' + (i + 1)).join(',')})`,
-          ks.map(k => (jsonCols.includes(k) && r[k] != null ? JSON.stringify(r[k]) : r[k])));
+          ks.map(k => (jsonCols.includes(k) && r[k] != null ? JSON.stringify(r[k]) : t === 'press_design_files' && k === 'data' && r[k] != null ? Buffer.from(String(r[k]), 'base64') : r[k])));
       }
       if (valid.includes('id') && t !== 'settings' && t !== 'invoice_sequences')
         await c.query(`SELECT setval(pg_get_serial_sequence('${t}','id'), GREATEST((SELECT COALESCE(MAX(id),0) FROM ${t}),1), (SELECT COUNT(*)>0 FROM ${t}))`);

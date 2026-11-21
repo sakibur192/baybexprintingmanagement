@@ -4,7 +4,7 @@ App.pages.reports = {
   title: 'Detailed Sales & Audit Reports',
   st: null,
   state() {
-    if (!this.st) { const [f, t] = periodRange('today'); this.st = { period: 'today', from: f, to: t, division: 'all', customer: null, product: '', media: '', width: '', view: 'summary', register: 'sales', user: '' }; }
+    if (!this.st) { const [f, t] = periodRange('month'); this.st = { period: 'month', from: f, to: t, division: 'all', customer: null, product: '', media: '', width: '', view: (can('press.view', 'press.orders') ? 'press' : 'summary'), register: 'sales', user: '' }; }
     return this.st;
   },
   async render(v) {
@@ -21,8 +21,8 @@ App.pages.reports = {
         ${field('PVC media', `<select name="media"><option value="">All media</option>${cats.map(c => opt(c, c, s.media)).join('')}</select>`)}
         ${field('Roll width', `<select name="width"><option value="">All widths</option>${[3, 4, 5, 6, 8, 10].map(w => opt(w, w + ' ft', s.width)).join('')}</select>`)}
         <div class="field" style="align-self:end"><button class="btn" id="rgo">${ICON.chart} Run report</button></div></div></div>
-      <div class="tabs">${[['summary', 'Business Summary'], ['registers', 'Registers & Audit'], ...(can('reports.employee') ? [['employee', 'Employee Reports']] : [])].map(([k, l]) => `<button data-t="${k}" class="${k === s.view ? 'on' : ''}">${l}</button>`).join('')}
-        <span class="right row" style="padding:4px"><button class="btn sm ghost" id="rx">${ICON.excel} Export Excel</button><button class="btn sm ghost" id="rpdf">${ICON.doc} PDF</button><button class="btn sm" id="rpr">${ICON.print} Print</button></span></div>
+      <div class="tabs">${[...(can('press.view', 'press.orders', 'reports') ? [['press', 'Printing Press']] : []), ['summary', 'PVC & CTP Summary'], ['registers', 'Registers & Audit'], ...(can('reports.employee') ? [['employee', 'Employee Reports']] : [])].map(([k, l]) => `<button data-t="${k}" class="${k === s.view ? 'on' : ''}">${l}</button>`).join('')}
+        <span class="right row" style="padding:4px"><button class="btn sm ghost" id="rx">${ICON.excel} Export Excel</button><button class="btn sm ghost" id="rcsv">CSV</button><button class="btn sm ghost" id="rpdf">${ICON.doc} PDF</button><button class="btn sm" id="rpr">${ICON.print} Print</button></span></div>
       <div id="rpt" class="tabpane"></div>`;
     const cp = custPicker($('#rc', v), { value: s.customer, allowAdd: false, placeholder: 'All customers', onPick: c => (s.customer = c) });
     const read = () => { const f = formData($('#rf', v)); Object.assign(s, { from: f.from, to: f.to, division: f.division, product: f.product, media: f.media, width: f.width }); };
@@ -36,6 +36,7 @@ App.pages.reports = {
     $('#rgo', v).onclick = () => { read(); this.run(); };
     $$('[data-t]', v).forEach(b => b.onclick = () => { read(); s.view = b.dataset.t; $$('[data-t]', v).forEach(x => x.classList.toggle('on', x === b)); this.run(); });
     $('#rx', v).onclick = () => this.exportExcel();
+    if ($('#rcsv', v)) $('#rcsv', v).onclick = () => this.exportCsv();
     $('#rpr', v).onclick = () => this.print();
     $('#rpdf', v).onclick = () => { toast('Choose “Save as PDF” in the print dialog', '', 'info'); this.print(); };
     this.v = v; await this.run();
@@ -50,6 +51,30 @@ App.pages.reports = {
     if (!sheets.length) return toast('Nothing to export', '', 'warn');
     exportXlsx(`${App.meta.settings.company?.name || 'Business'} Report ${this.st.from} to ${this.st.to}`, this.meta(), sheets);
   },
+  exportCsv() {
+    const t = $('#rpt table[data-sheet]'); if (!t) return toast('Nothing to export', '', 'warn');
+    const cell = x => `"${String(x.innerText || '').replace(/\s+/g, ' ').trim().replace(/"/g, '""')}"`;
+    const csv = $$('tr', t).map(r => $$('th,td', r).map(cell).join(',')).join('\r\n');
+    saveBlob(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), `${t.dataset.sheet} ${this.st.from} to ${this.st.to}.csv`);
+  },
+  async press(el) {
+    const s = this.st;
+    const list = this.pressList = this.pressList || await GET('/api/press/reports');
+    s.preport = s.preport || 'orders-date';
+    const groups = [['Orders', /^order/], ['Production', /^prod/], ['Delivery', /challan|delivery/], ['Stock', /stock|purchases|issues|returns|adjust|movement|wastage/], ['Accounts', /invoice|void|payment|refund|income|expense/], ['Job costing', /cost|profit/]];
+    const r = await GET('/api/press/reports/' + s.preport, { from: s.from, to: s.to, customer: s.customer?.id || '' });
+    const cols = r.rows.length ? Object.keys(r.rows[0]) : [];
+    const isNum = k => r.rows.some(x => typeof x[k] === 'number') && !/(^|_)(no|id)$/.test(k);
+    const isDate = k => /date|^completed$|^started$|^due$|^deadline$|planned_start|void_date/.test(k);
+    const fmt = (k, v) => v == null ? '' : k === 'status' && typeof OSTAT !== 'undefined' && OSTAT[v] ? OSTAT[v][0] : isDate(k) && /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? fdate(v) : /entered|voided_at/.test(k) ? fdt(v) : isNum(k) ? (Object.values(r.totals || {}).includes(k) || /amount|total|cost|value|price|paid|due|income|expense|net|profit|refund|selling|rate|paper|plate|printing|design|lamination|finishing|labour|outsourcing|other/.test(k) ? nf2.format(v) : qn(v)) : esc(v);
+    const head = k => k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+    el.innerHTML = `<div class="grid" style="grid-template-columns:260px 1fr;align-items:start"><div class="panel" style="padding:10px">${groups.map(([g, re]) => `<div class="sub" style="font-weight:800;margin:10px 6px 4px">${g}</div>${list.filter(x => re.test(x.key)).map(x => `<button class="btn sm ${x.key === s.preport ? '' : 'ghost'}" data-pr="${x.key}" style="display:block;width:100%;text-align:left;margin-bottom:3px">${esc(x.title)}</button>`).join('')}`).join('')}</div>
+      <div class="panel"><div class="head"><div><h2>${esc(r.title)}</h2><div class="sub">${fdate(s.from)} → ${fdate(s.to)}${s.customer ? ' · ' + esc(s.customer.name) : ''} · ${r.rows.length} rows</div></div></div>
+        <div class="tbl-wrap"><table data-sheet="${esc(r.title.slice(0, 30))}"><thead><tr>${cols.map(k => `<th class="${isNum(k) ? 'n' : ''}">${head(k)}</th>`).join('')}</tr></thead><tbody>
+        ${r.rows.map(x => `<tr>${cols.map(k => `<td class="${isNum(k) ? 'n' : ''}" style="${isDate(k) || /_no$|^code$/.test(k) ? 'white-space:nowrap' : ''}">${fmt(k, x[k])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length || 1}" class="empty">No data for this period</td></tr>`}</tbody>
+        ${Object.keys(r.totals || {}).length && r.rows.length ? `<tfoot><tr>${cols.map((k, i) => `<th class="${isNum(k) ? 'n' : ''}">${Object.values(r.totals).includes(k) ? nf2.format(r.rows.reduce((a, x) => a + (+x[k] || 0), 0)) : i === 0 ? 'Total' : ''}</th>`).join('')}</tr></tfoot>` : ''}</table></div></div></div>`;
+    $$('[data-pr]', el).forEach(b => b.onclick = () => { s.preport = b.dataset.pr; this.run(); });
+  },
   print() {
     const c = App.meta.settings.company || {};
     const clone = $('#rpt').cloneNode(true);
@@ -61,7 +86,8 @@ App.pages.reports = {
     el.innerHTML = `<div class="grid g3">${'<div class="sk sk-card"></div>'.repeat(3)}</div><div class="sk" style="height:300px;margin-top:16px"></div>`;
     el.classList.remove('tabpane'); void el.offsetWidth; el.classList.add('tabpane');
     try {
-      if (s.view === 'summary') await this.summary(el);
+      if (s.view === 'press') await this.press(el);
+      else if (s.view === 'summary') await this.summary(el);
       else if (s.view === 'registers') await this.registers(el);
       else await this.employee(el);
       animateIn(el); bindTips(el);

@@ -270,8 +270,8 @@ function invoiceListPage(div) {
       });
       if ($('#del', v)) $('#del', v).onclick = async () => { if (await confirmBox('Delete draft?', 'This draft will be removed. Drafts never affected stock.', { ok: 'Delete', danger: true })) { try { await DEL(`/api/${div}/invoices/${id}`); toast('Draft deleted'); App.go(div + '-invoices'); } catch (e) { fail(e); } } };
       if ($('#cancel', v)) $('#cancel', v).onclick = async () => {
-        const reason = await confirmBox('Cancel confirmed invoice?', 'Stock will be returned through auditable reversal entries, the receivable is reversed, and any payment on it becomes customer credit. The invoice stays in history as CANCELLED.', { ok: 'Cancel invoice', danger: true, input: 'Cancellation reason' });
-        if (reason) { try { await POST(`/api/${div}/invoices/${id}/cancel`, { reason }); toast('Invoice cancelled'); App.refresh(); } catch (e) { fail(e); } }
+        const r = await cancelWithRefund({ title: 'Cancel ' + inv.inv_no + '?', text: 'Stock deducted by this invoice is returned and linked challans are cancelled.', paid: inv.paid, ok: 'Cancel invoice' });
+        if (r) { try { await POST(`/api/${div}/invoices/${id}/cancel`, r); toast('Invoice cancelled', r.refund ? 'Refund ' + tk(r.refund.amount) + ' recorded' : (inv.paid > 0 ? 'Paid amount kept as customer credit' : '')); App.refresh(); } catch (e) { fail(e); } }
       };
       if ($('#pay', v)) $('#pay', v).onclick = () => paymentModal({ customer: { id: inv.customer_id, name: inv.customer }, invoice: { division: div, id: inv.id, due: inv.due, inv_no: inv.inv_no } }, () => App.refresh());
       if ($('#dc', v)) $('#dc', v).onclick = () => challanFromInvoice(div, inv);

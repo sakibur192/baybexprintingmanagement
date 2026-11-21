@@ -12,9 +12,9 @@ const fdate = d => { if (!d) return ''; const [y, m, dd] = String(d).slice(0, 10
 const fdt = d => d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random());
 const debounce = (fn, ms = 220) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-const addDays = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };   // UTC maths: no off-by-one in UTC+6
 const monthStart = d => d.slice(0, 8) + '01';
-const monthEnd = d => { const x = new Date(d.slice(0, 7) + '-01T00:00:00'); x.setMonth(x.getMonth() + 1); x.setDate(0); return x.toISOString().slice(0, 10); };
+const monthEnd = d => { const x = new Date(d.slice(0, 7) + '-01T00:00:00Z'); x.setUTCMonth(x.getUTCMonth() + 1); x.setUTCDate(0); return x.toISOString().slice(0, 10); };
 const TYPE_LABEL = { opening: 'Opening Stock', production: 'Production', stock_in: 'Stock In', adj_in: 'Adjustment In', sale: 'Sale', own_use: 'Own Use', adj_out: 'Adjustment Out', challan_out: 'Standalone Delivery', print: 'Printed', wastage: 'Wastage' };
 
 /* ---------------- icons ---------------- */
@@ -69,9 +69,10 @@ function loading(on) {
 async function api(method, url, body, opts = {}) {
   loading(true);
   try {
-    const headers = { 'Content-Type': 'application/json' };
+    const isFile = typeof Blob !== 'undefined' && body instanceof Blob;
+    const headers = { 'Content-Type': isFile ? (body.type || 'application/octet-stream') : 'application/json', ...(opts.headers || {}) };
     if (method === 'POST' && opts.idem !== false) headers['X-Idempotency-Key'] = opts.idemKey || uid();
-    const r = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+    const r = await fetch(url, { method, headers, body: isFile ? body : body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
     if (opts.raw) { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Request failed'); return r; }
     const data = await r.json().catch(() => ({}));
     if (r.status === 401 && !url.includes('/login')) { if (window.onAuthLost) window.onAuthLost(); else { App.user = null; App.renderLogin(); } throw Object.assign(new Error('Session expired. Please log in again.'), { silent: true }); }
@@ -173,7 +174,11 @@ const mediaOptions = (sel, all = false) => {
 const mediaName = m => m ? `${m.category} ${+m.width_ft} ft` : '';
 const field = (label, inner, cls = '', hint = '') => `<label class="field ${cls}">${label}${hint ? ` <span class="hint">${hint}</span>` : ''}${inner}</label>`;
 const can = (...p) => p.some(x => App.user.perms.includes(x));
-const dateInput = (name = 'date', val) => `<input type="date" name="${name}" value="${val || App.today}" ${can('date.edit') ? '' : 'readonly title="Back-dating requires permission"'}>`;
+/** entry date: today by default, any past date within the allowed back-date window (paper register after a power / internet cut), never in the future */
+const backDays = () => { const v = App.meta?.settings?.press?.backdate_days; return v == null ? 31 : +v; };
+const dateInput = (name = 'date', val) => `<input type="date" name="${name}" value="${val || App.today}" max="${App.today}" ${can('date.edit') ? '' : `min="${addDays(App.today, -backDays())}" title="Up to ${backDays()} days back"`}>`;
+const nowHM = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+const timeInput = (name = 'time', val) => `<input type="time" name="${name}" value="${val || nowHM()}">`;
 
 /** delete a master-list entry (plate, media, item, customer). Never used for transaction records. */
 async function masterDelete(url, name, after) {
@@ -230,6 +235,7 @@ function customerModal(c = {}, done) {
       ${field('Mobile', `<input name="phone" value="${esc(c.phone || '')}" placeholder="01XXXXXXXXX">`)}
       ${field('Address', `<input name="address" value="${esc(c.address || '')}">`, 'span2')}
       ${field('Email', `<input name="email" type="email" value="${esc(c.email || '')}">`)}
+      ${field('Customer type', `<input name="customer_type" list="ctl" value="${esc(c.customer_type || '')}"><datalist id="ctl">${(App.meta.settings.press?.customer_types || ['Own order', 'Business / institution', 'Local customer']).map(x => `<option value="${esc(x)}">`).join('')}</datalist>`)}
       ${field('Opening balance (৳)', `<input name="opening_balance" type="number" step="0.01" value="${esc(c.opening_balance || 0)}">`, '', 'previous due')}
       ${field('Remarks', `<input name="remarks" value="${esc(c.remarks || '')}">`, 'span2')}
       ${c.id ? `<label class="check"><input type="checkbox" name="active" ${c.active !== false ? 'checked' : ''}> Active</label>` : ''}
@@ -286,7 +292,20 @@ function dataTable(el, rows, cols, { search = true, onRow, empty = 'No records f
 const stripTags = h => String(h).replace(/<[^>]+>/g, '');
 const tagFor = s => ({ Paid: 'green', 'Partially Paid': 'orange', Due: 'red', confirmed: 'green', draft: 'gray', cancelled: 'red', Pending: 'orange', Partial: 'purple', Delivered: 'green', active: 'green', OK: 'green', OVERRIDE: 'orange' }[s] || 'gray');
 const statusTag = s => s && s !== '-' ? `<span class="tag ${tagFor(s)}">${esc(s[0].toUpperCase() + s.slice(1))}</span>` : '<span class="muted">—</span>';
-const divTag = d => { const k = String(d).toLowerCase(); return `<span class="tag ${k === 'ctp' ? '' : k === 'pvc' ? 'teal' : k === 'gen' ? 'orange' : 'gray'}">${esc(k === 'gen' ? 'GENERAL' : String(d).toUpperCase())}</span>`; };
+const divTag = d => { const k = String(d).toLowerCase(); return `<span class="tag ${k === 'ctp' ? '' : k === 'pvc' ? 'teal' : k === 'gen' ? 'orange' : k === 'press' ? 'purple' : 'gray'}">${esc(k === 'gen' ? 'JOB' : String(d).toUpperCase())}</span>`; };
+/** cancel dialog with an optional refund of money already paid (no refund → the money stays as customer advance) */
+function cancelWithRefund({ title, text, paid = 0, ok = 'Cancel' }) {
+  return new Promise(res => {
+    const canRefund = paid > 0.004 && can('refunds');
+    const m = modal({ title, size: 'narrow', body: `<div class="sub">${esc(text || '')}</div><div class="form mt" id="cwr">${field('Reason <span class="req">*</span>', `<input name="reason">`)}
+      ${paid > 0.004 ? `<div class="note">৳ ${nf2.format(paid)} was paid. ${canRefund ? 'Refund it now, or keep it as customer advance / credit.' : 'It stays as customer advance / credit.'}</div>` : ''}
+      ${canRefund ? `<label class="check"><input type="checkbox" name="do_refund" checked> Refund money to the customer</label><div class="form f2" id="cwr2">${field('Refund amount (৳)', `<input type="number" min="0" step="0.01" name="amount" value="${r2(paid)}">`)}${field('Paid back by', `<select name="method">${App.meta.payment_methods.map(x => opt(x, x)).join('')}</select>`)}</div>` : ''}</div>
+      <div class="actions"><button class="btn ghost" data-x>Back</button><button class="btn danger" id="cwrok">${esc(ok)}</button></div>` });
+    const chk = $('[name=do_refund]', m.el); if (chk) chk.onchange = () => $('#cwr2', m.el).classList.toggle('hide', !chk.checked);
+    $('[data-x]', m.el).onclick = () => { m.close(); res(null); };
+    $('#cwrok', m.el).onclick = () => { if (!requireFields(m.el, ['reason'])) return; const d = formData($('#cwr', m.el)); m.close(); res({ reason: d.reason, refund: chk && chk.checked && +d.amount > 0 ? { amount: +d.amount, method: d.method } : null }); };
+  });
+}
 
 /* ---------------- count-up & charts ---------------- */
 function countUp(el, to, fmt = n0, ms = 900) {
@@ -457,28 +476,36 @@ function companyHeader(sub = '') {
 const NAV = [
   { cap: 'OVERVIEW' },
   { id: 'dashboard', label: 'Dashboard', icon: 'dash', perm: ['dashboard'] },
-  { id: 'general', label: 'General', icon: 'layers', perm: ['general.view', 'general.invoice', 'general.stock', 'general.items'] },
-  { cap: 'CTP DIVISION' },
-  { id: 'ctp', label: 'CTP Inventory', icon: 'plate', perm: ['ctp.view'] },
-  { id: 'ctp-invoices', label: 'CTP Sales / Invoice', icon: 'invoice', perm: ['ctp.invoice'] },
-  { id: 'ctp-ownuse', label: 'CTP Own Use', icon: 'own', perm: ['ctp.ownuse'] },
-  { id: 'ctp-challans', label: 'CTP Challan', icon: 'truck', perm: ['ctp.challan'] },
+  { cap: 'PRINTING PRESS' },
+  { id: 'press-orders', label: 'Orders & Order Sheet', icon: 'invoice', perm: ['press.view', 'press.orders'] },
+  { id: 'press-production', label: 'Production & Design', icon: 'gear', perm: ['press.view', 'press.production', 'press.design'] },
+  { id: 'press-store', label: 'Store & Material Issue', icon: 'box', perm: ['press.view', 'press.store', 'internal'] },
+  { id: 'press-delivery', label: 'Delivery Challan', icon: 'truck', perm: ['press.view', 'press.delivery'] },
+  { id: 'press-invoices', label: 'Final Invoices', icon: 'register', perm: ['press.view', 'press.invoice'] },
+  { id: 'press-materials', label: 'Customer Materials', icon: 'layers', perm: ['press.view', 'press.orders', 'press.store'] },
+  { id: 'press-calc', label: 'Paper Calculator', icon: 'chart', perm: ['press.view', 'press.orders'] },
+  { id: 'press-machines', label: 'Machines', icon: 'print', perm: ['press.view', 'press.machines'] },
+  { id: 'press-suppliers', label: 'Suppliers & Outsourcing', icon: 'users', perm: ['press.suppliers', 'press.store'] },
   { cap: 'PVC / MEDIA DIVISION' },
   { id: 'pvc', label: 'PVC Inventory', icon: 'roll', perm: ['pvc.view'] },
   { id: 'pvc-print', label: 'PVC Print Entry', icon: 'print', perm: ['pvc.print'] },
   { id: 'pvc-invoices', label: 'PVC Sales / Invoice', icon: 'invoice', perm: ['pvc.invoice'] },
   { id: 'pvc-challans', label: 'PVC Challan', icon: 'truck', perm: ['pvc.challan'] },
   { id: 'ink', label: 'Ink Stock', icon: 'ink', perm: ['ink'] },
+  { cap: 'CTP DIVISION' },
+  { id: 'ctp', label: 'CTP Inventory', icon: 'plate', perm: ['ctp.view'] },
+  { id: 'ctp-invoices', label: 'CTP Sales / Invoice', icon: 'invoice', perm: ['ctp.invoice'] },
+  { id: 'ctp-ownuse', label: 'CTP Own Use', icon: 'own', perm: ['ctp.ownuse'] },
+  { id: 'ctp-challans', label: 'CTP Challan', icon: 'truck', perm: ['ctp.challan'] },
   { cap: 'SHARED BUSINESS' },
   { id: 'customers', label: 'Customers', icon: 'users', perm: ['customers.view'] },
-  { id: 'accounts', label: 'Accounts & Ledger', icon: 'money', perm: ['accounts.view', 'payments'] },
+  { id: 'accounts', label: 'Accounts, Payments & Refunds', icon: 'money', perm: ['accounts.view', 'payments', 'refunds'] },
   { id: 'expenses', label: 'Expenses', icon: 'expense', perm: ['expenses'] },
   { id: 'reports', label: 'Reports Centre', icon: 'chart', perm: ['reports'] },
+  { id: 'press-settings', label: 'Press Settings', icon: 'gear', perm: ['settings', 'press.settings'] },
   { id: 'admin', label: 'Users & Settings', icon: 'gear', perm: ['users', 'settings', 'backup', 'audit'] },
   { id: 'android', label: 'App & Downloads', icon: 'phone', perm: ['dashboard'] },
   { id: 'billing', label: 'Subscription', icon: 'key', perm: ['billing'] },
-  { cap: 'INTERNAL' },
-  { id: 'internal', label: 'Internal Inventory', icon: 'box', perm: ['internal'] },
 ];
 const App = {
   user: null, meta: null, today: null, pages: {}, current: null,
@@ -572,9 +599,11 @@ const App = {
   closeSide() { $('#side')?.classList.remove('open'); $('#ovl')?.classList.remove('on'); },
   async logout() { await POST('/api/logout', {}, { idem: false }).catch(() => {}); this.user = null; this.renderLogin(); location.hash = ''; },
   route() {
-    const [page = 'dashboard', ...args] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+    const home = this.user.perms.includes('dashboard') ? 'dashboard' : (NAV.find(n => n.id && n.perm.some(p => this.user.perms.includes(p))) || { id: 'dashboard' }).id;   // roles without the dashboard land on their first allowed page
+    let [page, ...args] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+    if (!page || (page === 'dashboard' && home !== 'dashboard')) page = home;
     const def = NAV.find(n => n.id === page);
-    const target = page && this.pages[page] ? page : 'dashboard';
+    const target = page && this.pages[page] ? page : home;
     if (def && !def.perm.some(p => this.user.perms.includes(p))) { $('#view').innerHTML = `<div class="panel"><div class="empty">${ICON.shield}You do not have access to this page.</div></div>`; return; }
     $$('.nav').forEach(n => n.classList.toggle('active', n.dataset.page === target || (target.startsWith(n.dataset.page + '-') && !$(`.nav[data-page="${target}"]`))));
     const pg = this.pages[target];
@@ -584,7 +613,9 @@ const App = {
     v.classList.remove('page-enter'); void v.offsetWidth; v.classList.add('page-enter');
     v.innerHTML = `<div class="grid g4">${'<div class="sk sk-card"></div>'.repeat(4)}</div><div class="sk" style="height:280px;margin-top:16px;border-radius:14px"></div>`;
     this.current = target; scrollTo(0, 0);
-    Promise.resolve(pg.render(v, ...args)).then(() => { animateIn(v); bindTips(v); }).catch(e => { fail(e); v.innerHTML = `<div class="panel"><div class="empty">${esc(e.message)}</div></div>`; });
+    Promise.resolve(pg.render(v, ...args)).then(() => { if (v.isConnected) { animateIn(v); bindTips(v); } })
+      .catch(e => { if (!v.isConnected) return;   // user already moved to another page — the old page's late error is irrelevant
+        fail(e); v.innerHTML = `<div class="panel"><div class="empty">${esc(e.message)}</div></div>`; });
   },
   go(h) { if (location.hash === '#/' + h) this.route(); else location.hash = '#/' + h; },
   refresh() { this.route(); },

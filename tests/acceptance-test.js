@@ -172,65 +172,26 @@ const ex = async (name, p, status) => { const r = await p; ok(name, r.status ===
   ok('Restore rolled back to backup state', !custs.some(c => c.name === 'Temp After Backup') && custs.length === 2);
   ok('Stock identical after restore', (await stock())[MINI] === (await stock())[MINI] && (await call(A, 'GET', '/api/ctp/stock')).data.find(p => p.id === MINI).balance === 106);
 
-  console.log('\nGeneral section — lamination film, paper, ID card / memo / binding jobs');
-  const bal = async (k, id) => +(await call(A, 'GET', `/api/gen/${k}/items`)).data.find(i => i.id === id).balance;
-  const film = (await call(A, 'POST', '/api/gen/lamination/items', { finish: 'Glossy', machine: 'PVC Lamination Machine', width_in: 12, roll_length: 300, low_stock: 50, opening: 300 }, false)).data;
-  ok('Lamination film created with auto name + opening 300 ft', film.name === 'Glossy 12"' && (await bal('lamination', film.id)) === 300, JSON.stringify(film).slice(0, 120));
-  const paper = (await call(A, 'POST', '/api/gen/paper/items', { paper_type: 'Offset', gsm: '70', size: 'F4 (Legal)', color: 'White', unit: 'Ream', opening: 10 }, false)).data;
-  ok('Paper item auto-named by type / GSM / size / colour', paper.name === 'Offset 70 GSM F4 (Legal) White' && (await bal('paper', paper.id)) === 10, paper.name);
-  await ex('Film without width rejected', call(A, 'POST', '/api/gen/lamination/items', { finish: 'Matte' }, false), 400);
-  const g1 = await call(A, 'POST', '/api/gen/invoices', { customer_id: c1.id, paid_amount: 100, payment_method: 'Cash', items: [
-    { job_type: 'Lamination', w: 10, l: 8, qty: 10, price_unit: 'sqin', rate: 0.5, film_item_id: film.id },
-    { job_type: 'Memo / Receipt Book', description: '2-part memo', qty: 20, price_unit: 'book', rate: 150, paper_item_id: paper.id, paper_qty: 2 },
-    { job_type: 'Visiting Card', qty: 500, price_unit: 'k1000', rate: 600 },
-    { job_type: 'PVC ID Card', qty: 25, price_unit: 'pc', rate: 40 }] });
-  ok('General bill saved with number GEN-INV-00001', g1.status === 200 && g1.data.inv_no === 'GEN-INV-00001', JSON.stringify(g1.data).slice(0, 200));
-  const gi = g1.data;
-  ok('Sq-inch lamination = 10×8×10×0.5 = 400', gi.items[0].line_total === 400);
-  ok('Minimum qty charged (500 cards billed as 1000)', gi.items[2].billed_qty === 1000 && gi.items[2].line_total === 600);
-  ok('Bill total 400 + 3000 + 600 + 1000 = 5000, paid 100, due 4900', gi.grand_total === 5000 && gi.paid === 100 && gi.due === 4900, `${gi.grand_total}/${gi.paid}/${gi.due}`);
-  ok('Film deducted by run length (8" × 10 pcs = 6.667 ft)', Math.abs((await bal('lamination', film.id)) - 293.333) < 0.001);
-  ok('Paper deducted (10 − 2 = 8 reams)', (await bal('paper', paper.id)) === 8);
-  await ex('Artwork wider than the film is rejected', call(A, 'POST', '/api/gen/invoices', { customer_id: c1.id, items: [{ job_type: 'Lamination', w: 13, l: 14, qty: 1, price_unit: 'sqin', rate: 1, film_item_id: film.id }] }), 400);
-  const nf = await call(A, 'POST', '/api/gen/invoices', { customer_id: c1.id, items: [{ job_type: 'Lamination', w: 10, l: 10, qty: 400, price_unit: 'sqin', rate: 1, film_item_id: film.id }] });
-  ok('Not enough film → bill refused, nothing saved', nf.status === 400 && /Not enough/.test(nf.data.error) && (await call(A, 'GET', '/api/gen/invoices')).data.length === 1, JSON.stringify(nf.data));
-  const cbal = (await call(A, 'GET', '/api/customers/' + c1.id)).data;
-  ok('General due included in customer balance & profile', cbal.gen_due === 4900 && cbal.gen.length === 1);
-  const gled = (await call(A, 'GET', `/api/customers/${c1.id}/ledger?division=gen`)).data;
-  ok('Ledger shows General invoice + its payment', gled.rows.some(r => r.type === 'General Invoice' && r.debit === 5000) && gled.rows.some(r => r.type === 'Payment' && r.credit === 100));
-  ok('Open invoices list includes the General bill', (await call(A, 'GET', `/api/customers/${c1.id}/open-invoices`)).data.some(i => i.division === 'gen' && i.due === 4900));
-  const gp = (await call(A, 'POST', '/api/payments', { customer_id: c1.id, amount: 900, method: 'Cash', division: 'gen' })).data;
-  ok('Payment auto-allocates to the General bill', gp.allocations.some(a => a.division === 'gen' && a.amount === 900), JSON.stringify(gp.allocations));
-  ok('Bill due now 4000', (await call(A, 'GET', '/api/gen/invoices/' + gi.id)).data.due === 4000);
-  const gc = (await call(A, 'POST', `/api/gen/invoices/${gi.id}/cancel`, { reason: 'Customer cancelled' })).data;
-  ok('Cancel bill returns film and paper to stock', gc.status === 'cancelled' && (await bal('lamination', film.id)) === 300 && (await bal('paper', paper.id)) === 10);
-  await ex('Own use needs a purpose', call(A, 'POST', '/api/gen/paper/moves', { item_id: paper.id, type: 'use', qty: 1 }), 400);
-  await ex('Paper own use recorded', call(A, 'POST', '/api/gen/paper/moves', { item_id: paper.id, type: 'use', qty: 1, purpose: 'Office notepads' }), 200);
-  await ex('Own use cannot exceed stock', call(A, 'POST', '/api/gen/paper/moves', { item_id: paper.id, type: 'use', qty: 50, purpose: 'x' }), 400);
-  ok('Paper 10 − 1 own use = 9', (await bal('paper', paper.id)) === 9);
-  const jt = (await call(A, 'GET', '/api/general/settings')).data;
-  await call(A, 'PUT', '/api/general/settings', { job_types: [...jt.job_types, { name: 'Spiral Binding', unit: 'book', rate: 80, min_qty: 0, paper: true }] });
-  ok('Tenant can add their own job type', (await call(A, 'GET', '/api/general/settings')).data.job_types.some(j => j.name === 'Spiral Binding' && j.rate === 80));
-  await call(A, 'PUT', '/api/general/lists', { paper_sizes: [...meta.paper_sizes, 'A3'] });
-  await call(A, 'PUT', '/api/settings', { settings: { lists: { payment_methods: meta.payment_methods, expense_categories: meta.expense_categories, wastage_reasons: meta.wastage_reasons, ink_colors: meta.ink_colors } } });
-  ok('Paper sizes editable and not wiped by the main settings page', (await call(A, 'GET', '/api/meta')).data.paper_sizes.includes('A3'));
-  await ex('Unknown general list key refused', call(A, 'PUT', '/api/general/lists', { payment_methods: ['x'] }), 403);
-
-  console.log('\nInternal inventory');
-  const ii = (await call(A, 'GET', '/api/gen/internal/items')).data;
-  ok('Default internal items: solvent, wash, developer, filter paper', ['PVC Solvent', 'CTP Wash', 'CTP Developer', 'Filter Paper'].every(n => ii.some(i => i.name === n)));
+  console.log('\nStore (old General + Internal inventory merged) & counter job');
+  const sbal = async id => +(await call(A, 'GET', '/api/store/items')).data.find(i => i.id === id).balance;
+  const film = (await call(A, 'POST', '/api/store/items', { category: 'Lamination Film', name: 'Glossy 12"', unit: 'ft', width_in: 12, opening: 300 }, false)).data;
+  ok('Lamination film is a store item with opening 300 ft', film.id && (await sbal(film.id)) === 300, JSON.stringify(film).slice(0, 120));
+  const paper = (await call(A, 'POST', '/api/store/items', { category: 'Paper', paper_type: 'Offset', gsm: '70', size: 'F4', color: 'White', unit: 'Ream', opening: 10 }, false)).data;
+  ok('Paper auto-named by type / GSM / size / colour', paper.name === 'Offset 70 GSM F4 White', paper.name);
+  const ii = (await call(A, 'GET', '/api/store/items')).data;
+  ok('Default internal items moved into the store', ['PVC Solvent', 'CTP Wash', 'CTP Developer', 'Filter Paper'].every(n => ii.some(i => i.name === n)));
   const solv = ii.find(i => i.name === 'PVC Solvent');
-  await call(A, 'POST', '/api/gen/internal/moves', { item_id: solv.id, type: 'stock_in', qty: 20, party: 'Supplier A' });
-  await call(A, 'POST', '/api/gen/internal/moves', { item_id: solv.id, type: 'use', qty: 5, purpose: 'Machine cleaning' });
-  ok('Solvent 20 in − 5 used = 15 Ltr', (await bal('internal', solv.id)) === 15);
-  await ex('Using more than available is blocked', call(A, 'POST', '/api/gen/internal/moves', { item_id: solv.id, type: 'use', qty: 50, purpose: 'x' }), 400);
-  const gum = (await call(A, 'POST', '/api/gen/internal/items', { name: 'Gum', unit: 'Kg', opening: 2 }, false)).data;
-  ok('Tenant adds any internal item with own unit', gum.unit === 'Kg' && (await bal('internal', gum.id)) === 2);
-  await ex('Designer has internal access', call('des', 'POST', '/api/login', { business: BIZ, username: 'des', password: 'pass123' }, false), 200);
-  await ex('Accountant has no internal inventory access', (async () => { await call('acc', 'POST', '/api/login', { business: BIZ, username: 'acc', password: 'pass123' }, false); return call('acc', 'GET', '/api/gen/internal/items'); })(), 403);
-  const mvs = (await call(A, 'GET', `/api/gen/internal/moves?item=${solv.id}`)).data;
-  await call(A, 'POST', `/api/gen/moves/${mvs.find(m => m.type === 'use').id}/void`, { reason: 'Wrong entry' });
-  ok('Void creates a reversal (balance back to 20, history kept)', (await bal('internal', solv.id)) === 20 && (await call(A, 'GET', `/api/gen/internal/moves?item=${solv.id}`)).data.length === 3);
+  await call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'stock_in', qty: 20, party: 'Supplier A' });
+  await ex('Own use needs a purpose', call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 5 }), 400);
+  await call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 5, purpose: 'Machine cleaning' });
+  ok('Solvent 20 in − 5 used = 15 Ltr', (await sbal(solv.id)) === 15);
+  await ex('Using more than available is blocked', call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 50, purpose: 'x' }), 400);
+  const qj = await call(A, 'POST', '/api/press/quick', { customer_id: c1.id, paid_amount: 100, payment_method: 'Cash', items: [{ product: 'PVC ID Card', qty: 25, unit_price: 40 }, { product: 'Lamination', qty: 10, unit_price: 40 }], materials: [{ item_id: film.id, qty: 6.667 }, { item_id: paper.id, qty: 2 }] });
+  ok('Counter job (ID card + lamination) → order, challan, final invoice 1400', qj.status === 200 && /PRS-INV/.test(qj.data.inv_no), JSON.stringify(qj.data));
+  ok('Counter job materials issued from store', Math.abs((await sbal(film.id)) - 293.333) < 0.001 && (await sbal(paper.id)) === 8);
+  ok('Counter job due in customer balance', (await call(A, 'GET', '/api/customers/' + c1.id)).data.press_due === 1300);
+  await ex('Designer has store access (internal)', call('des', 'POST', '/api/login', { business: BIZ, username: 'des', password: 'pass123' }, false), 200);
+  await ex('Accountant has no store access', (async () => { await call('acc', 'POST', '/api/login', { business: BIZ, username: 'acc', password: 'pass123' }, false); return call('acc', 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 1, purpose: 'x' }); })(), 403);
 
   console.log('\nDelete on master lists (never on transaction records)');
   const np = (await call(A, 'POST', '/api/ctp/products', { name: 'Test Plate', current_rate: 100 }, false)).data;
@@ -248,7 +209,7 @@ const ex = async (name, p, status) => { const r = await p; ok(name, r.status ===
   await ex('Customer with invoices cannot be deleted', call(A, 'DELETE', '/api/customers/' + c1.id), 409);
   const tc = (await call(A, 'POST', '/api/customers', { name: 'Delete Me Ltd' })).data;
   await ex('New customer without records can be deleted', call(A, 'DELETE', '/api/customers/' + tc.id), 200);
-  await ex('Film with stock cannot be deleted', call(A, 'DELETE', '/api/gen/lamination/items/' + film.id), 400);
+  await ex('Store item with stock cannot be deleted', call(A, 'DELETE', '/api/store/items/' + film.id), 400);
 
   console.log('\nChallan prepared by + nickname, user nickname');
   const accU = (await call(A, 'GET', '/api/users')).data.find(u => u.username === 'acc');
@@ -276,7 +237,7 @@ const ex = async (name, p, status) => { const r = await p; ok(name, r.status ===
 
   const bk2 = await call(A, 'GET', '/api/backup');
   const backup2 = bk2.data instanceof ArrayBuffer ? JSON.parse(Buffer.from(bk2.data).toString()) : bk2.data;
-  ok('Backup includes General & Internal tables', backup2.tables.gen_items.length >= 7 && backup2.tables.gen_invoices.length === 1 && backup2.tables.gen_moves.length > 5);
+  ok('Backup includes store, press and refund tables', backup2.tables.gen_items.length >= 6 && backup2.tables.press_orders.length >= 1 && backup2.tables.press_invoices.length >= 1 && backup2.tables.gen_moves.length > 5 && Array.isArray(backup2.tables.refunds));
 
   console.log('\nSaaS — isolation, trial lock, billing, super admin');
   const B2 = BIZ + '-b';
