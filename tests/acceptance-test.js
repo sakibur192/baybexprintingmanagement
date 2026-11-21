@@ -178,20 +178,27 @@ const ex = async (name, p, status) => { const r = await p; ok(name, r.status ===
   ok('Lamination film is a store item with opening 300 ft', film.id && (await sbal(film.id)) === 300, JSON.stringify(film).slice(0, 120));
   const paper = (await call(A, 'POST', '/api/store/items', { category: 'Paper', paper_type: 'Offset', gsm: '70', size: 'F4', color: 'White', unit: 'Ream', opening: 10 }, false)).data;
   ok('Paper auto-named by type / GSM / size / colour', paper.name === 'Offset 70 GSM F4 White', paper.name);
-  const ii = (await call(A, 'GET', '/api/store/items')).data;
-  ok('Default internal items moved into the store', ['PVC Solvent', 'CTP Wash', 'CTP Developer', 'Filter Paper'].every(n => ii.some(i => i.name === n)));
+  console.log('\nInternal inventory (own section, unchanged)');
+  const ibal = async id => +(await call(A, 'GET', '/api/gen/internal/items')).data.find(i => i.id === id).balance;
+  const ii = (await call(A, 'GET', '/api/gen/internal/items')).data;
+  ok('Default internal items exist (solvent, wash, developer, filter paper)', ['PVC Solvent', 'CTP Wash', 'CTP Developer', 'Filter Paper'].every(n => ii.some(i => i.name === n)), ii.map(i => i.name).join());
+  ok('Internal items are NOT mixed into the press store', !(await call(A, 'GET', '/api/store/items')).data.some(i => ii.some(x => x.id === i.id)));
   const solv = ii.find(i => i.name === 'PVC Solvent');
-  await call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'stock_in', qty: 20, party: 'Supplier A' });
-  await ex('Own use needs a purpose', call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 5 }), 400);
-  await call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 5, purpose: 'Machine cleaning' });
-  ok('Solvent 20 in − 5 used = 15 Ltr', (await sbal(solv.id)) === 15);
-  await ex('Using more than available is blocked', call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 50, purpose: 'x' }), 400);
+  await call(A, 'POST', '/api/gen/internal/moves', { item_id: solv.id, type: 'stock_in', qty: 20, party: 'Supplier A' });
+  await ex('Own use needs a purpose', call(A, 'POST', '/api/gen/internal/moves', { item_id: solv.id, type: 'use', qty: 5 }), 400);
+  await call(A, 'POST', '/api/gen/internal/moves', { item_id: solv.id, type: 'use', qty: 5, purpose: 'Machine cleaning', date: new Date(Date.parse(today + 'T00:00:00Z') - 3 * 864e5).toISOString().slice(0, 10) });
+  ok('Solvent 20 in − 5 used = 15 Ltr', (await ibal(solv.id)) === 15);
+  await ex('Using more than available is blocked', call(A, 'POST', '/api/gen/internal/moves', { item_id: solv.id, type: 'use', qty: 50, purpose: 'x' }), 400);
+  const tp = (await call(A, 'POST', '/api/gen/internal/items', { name: 'A4 Office Paper', unit: 'Ream', opening: 4, low_stock: 5 }, false)).data;
+  ok('Tenant can add any internal item (e.g. paper by ream)', tp.id && (await ibal(tp.id)) === 4);
+  ok('Low internal stock shows on dashboard', (await call(A, 'GET', '/api/dashboard')).data.low.internal.some(i => i.id === tp.id));
+  await ex('Store item route cannot touch an internal item', call(A, 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 1, purpose: 'x' }), 400);
+  await ex('Internal item with stock cannot be deleted', call(A, 'DELETE', '/api/gen/internal/items/' + solv.id), 400);
+
   const qj = await call(A, 'POST', '/api/press/quick', { customer_id: c1.id, paid_amount: 100, payment_method: 'Cash', items: [{ product: 'PVC ID Card', qty: 25, unit_price: 40 }, { product: 'Lamination', qty: 10, unit_price: 40 }], materials: [{ item_id: film.id, qty: 6.667 }, { item_id: paper.id, qty: 2 }] });
   ok('Counter job (ID card + lamination) → order, challan, final invoice 1400', qj.status === 200 && /PRS-INV/.test(qj.data.inv_no), JSON.stringify(qj.data));
   ok('Counter job materials issued from store', Math.abs((await sbal(film.id)) - 293.333) < 0.001 && (await sbal(paper.id)) === 8);
   ok('Counter job due in customer balance', (await call(A, 'GET', '/api/customers/' + c1.id)).data.press_due === 1300);
-  await ex('Designer has store access (internal)', call('des', 'POST', '/api/login', { business: BIZ, username: 'des', password: 'pass123' }, false), 200);
-  await ex('Accountant has no store access', (async () => { await call('acc', 'POST', '/api/login', { business: BIZ, username: 'acc', password: 'pass123' }, false); return call('acc', 'POST', '/api/store/moves', { item_id: solv.id, type: 'use', qty: 1, purpose: 'x' }); })(), 403);
 
   console.log('\nDelete on master lists (never on transaction records)');
   const np = (await call(A, 'POST', '/api/ctp/products', { name: 'Test Plate', current_rate: 100 }, false)).data;

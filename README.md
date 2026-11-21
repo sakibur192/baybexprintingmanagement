@@ -49,8 +49,13 @@ Logo & brand colour · business details · invoice/challan titles and footer not
 - **Super admin → Brochure**: preview it, download it, or upload a replacement PDF (stored in PostgreSQL). After changing contact details, open `/brochure` → Print → Save as PDF (A4, no margins, background graphics) → upload.
 - Set **Super admin → Platform Settings → Public base URL** (e.g. `https://print.baybexai.com`) so QR codes and links point to your real domain.
 
+## Handover documents
+- `docs/USER_MANUAL.md` — Bangla user manual (every workflow, step by step).
+- `docs/DATABASE_SCHEMA.sql` — full database schema for reference (the server creates / upgrades tables itself).
+- This README — install, deploy (Coolify / VPS), backup & restore.
+
 ## Tests
-`node tests/acceptance-test.js` (131 checks) and `node tests/press-test.js` (77 checks) against a running server.
+`node tests/acceptance-test.js` (134 checks) and `node tests/press-test.js` (94 checks) against a running server.
 `node tests/acceptance-test.js` (server running) — 98 checks: spec v1.0–1.3 acceptance tests + SaaS isolation, trial lock, payment approval, suspension, impersonation, Android release upload/version check/forced update/download, brochure upload & download, discounts & coupons.
 
 ## Deploy (Coolify / VPS)
@@ -71,19 +76,22 @@ Every text on the public website (`/`) can be edited from the super admin. Nothi
 - **Storage and safety:** content is stored in `platform_settings.website`. Unknown keys are dropped, and text is escaped (no HTML injection).
 
 ## Sidebar order
-Overview (Dashboard) → **Printing Press** → **PVC / Media** → **CTP** → Shared (Customers, Accounts/Payments/Refunds, Expenses, Reports, Press Settings, Users & Settings, App, Subscription).
-The old *General* and *Internal Inventory* sections are gone: their items (lamination film, paper, solvent, wash, developer, filter paper…) now live in **Press → Store**, and ID-card / memo / binding jobs are done as **Counter Jobs** (order + challan + invoice in one step). Old General bills stay viewable read-only.
+Overview (Dashboard) → **Printing Press** → **PVC / Media** → **CTP** → Shared (Customers, Accounts/Payments/Refunds, Expenses, Reports, Press Settings, Users & Settings, App, Subscription) → **Internal Inventory** (bottom, unchanged).
+Only the old *General* section was removed: its lamination film / paper stock now lives in **Press → Store**, and ID-card / memo / binding jobs are made as **Counter Jobs** (order + challan + invoice in one step). Old General bills stay viewable read-only.
+**Internal Inventory** (PVC solvent, CTP wash / developer, filter paper, anything the business adds) stays its own section exactly as before; it is kept separate from the press store, and its low-stock items also show in the dashboard's stock alerts.
 
 ## Printing Press (from the offset press spec)
+- **Quotations**: price offer (A4 print) → Sent / Accepted / Rejected (auto *Expired* after the validity date) → **Convert to order** with all products, prices and an optional advance. No stock or accounts effect.
 - **Orders**: many products per order, each with its own design, production steps (from templates), delivery and costs. Advance payment on the order is auto-allocated when the invoice is made.
 - **Design**: start → send → approve / revision; file upload after approval. Printing/plate steps are blocked until the design is approved.
 - **Production board + calendar** (day/week/month), machines, outsourcing (with payment → expense).
 - **Store**: items, purchases (ream↔sheet, weighted average cost), use/wastage/adjust, material **issue** (only this reduces stock) and **return** (usable → stock, damaged → loss). Customer-supplied materials register.
 - **Delivery**: partial deliveries make A5 challans; one final A4 invoice per order (discount, adjustment, close-early with reason).
 - **Void register** with snapshot, optional second-person approval.
-- **Job costing**: estimated vs actual (materials + outsourcing + extra costs).
+- **Job costing**: estimated vs actual (materials + outsourcing + extra costs), optional **overhead %**; optional **VAT %** on the final invoice (both 0 = off, Press Settings).
 - **Paper calculator**: ups (normal/rotated/mixed), make-ready, wastage, reams, weight, cost.
 - **29 press reports** with CSV export; dashboard shows all divisions together.
+- **Easy mode UI**: every order shows a 7-step progress bar (Order → Design → Material → Production → Delivery → Invoice → Payment) with one big next-action button and a Bangla instruction; short forms (extras under *More — optional*); product type auto-picked from the product name; Bangla 💡 tips on each press page (dismissable, reset in Press Settings); rarely used press menus folded under *Press tools*.
 - Roles: Marketing Officer (sees only own orders), Store Staff, Designer, Accountant, Manager.
 
 ## Refunds

@@ -40,7 +40,7 @@ const DEFAULT_PRESS = {
   ream_sheets: 500, make_ready_sheets: 50, wastage_pct: 3,
   order_types: ['Full Production', 'Partial Production', 'Service Only'],
   customer_types: ['Own order', 'Business / institution', 'Local customer'],
-  void_needs_approval: false, backdate_days: 31,
+  void_needs_approval: false, backdate_days: 31, quote_valid_days: 15, quote_terms: 'Prices valid until the date shown. Design changes after approval may change the price. 50% advance with the order.', overhead_pct: 0, vat_pct: 0,
 };
 
 module.exports = function installPress(h) {
@@ -61,6 +61,7 @@ module.exports = function installPress(h) {
   async function act(c, u, order_id, item_id, kind, text) {
     await c.query(`INSERT INTO press_activity(order_id,item_id,kind,text,by_name) VALUES($1,$2,$3,$4,$5)`, [order_id, item_id || null, kind, text, u.full_name]);
   }
+  const addDaysIso = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
   const canSeeAll = u => perm(u, 'press.orders.all', 'press.production', 'press.store', 'press.delivery', 'press.invoice', 'press.design');
   async function loadOrderFor(c, u, id, lock) {
     const o = (await c.query(`SELECT * FROM press_orders WHERE id=$1 ${lock ? 'FOR UPDATE' : ''}`, [id])).rows[0];
@@ -108,10 +109,13 @@ module.exports = function installPress(h) {
     actual.outsourcing += +(await c.query(`SELECT COALESCE(SUM(cost),0) v FROM press_outsourcing WHERE order_id=$1`, [orderId])).rows[0].v;
     for (const m of (await c.query(`SELECT category, SUM(amount) amt FROM press_costs WHERE order_id=$1 AND NOT voided GROUP BY category`, [orderId])).rows) actual[COST_CATS[m.category] ? m.category : 'other'] += +m.amt;
     for (const k in est) { est[k] = r2(est[k]); actual[k] = r2(actual[k]); }
-    const inv = (await c.query(`SELECT grand_total FROM press_invoices WHERE order_id=$1 AND status='final'`, [orderId])).rows[0];
-    const selling = r2(inv ? +inv.grand_total : items.reduce((s, i) => s + +i.total, 0));
-    const est_total = r2(Object.values(est).reduce((a, b) => a + b, 0)), actual_total = r2(Object.values(actual).reduce((a, b) => a + b, 0));
-    return { selling, invoiced: !!inv, est, actual, est_total, actual_total, est_profit: r2(selling - est_total), actual_profit: r2(selling - actual_total) };
+    const inv = (await c.query(`SELECT grand_total, COALESCE(vat_amount,0) vat FROM press_invoices WHERE order_id=$1 AND status='final'`, [orderId])).rows[0];
+    const selling = r2(inv ? +inv.grand_total - +inv.vat : items.reduce((s, i) => s + +i.total, 0));   // VAT is collected for government, not income
+    const ohp = +(await pressSettings()).overhead_pct || 0;   // optional share of electricity / rent / maintenance (Press Settings)
+    const est_direct = r2(Object.values(est).reduce((a, b) => a + b, 0)), act_direct = r2(Object.values(actual).reduce((a, b) => a + b, 0));
+    const est_overhead = r2(est_direct * ohp / 100), actual_overhead = r2(act_direct * ohp / 100);
+    const est_total = r2(est_direct + est_overhead), actual_total = r2(act_direct + actual_overhead);
+    return { selling, invoiced: !!inv, est, actual, overhead_pct: ohp, est_overhead, actual_overhead, est_total, actual_total, est_profit: r2(selling - est_total), actual_profit: r2(selling - actual_total) };
   }
 
   /* ---------------- settings ---------------- */
@@ -124,10 +128,12 @@ module.exports = function installPress(h) {
       if (!v.templates.length) bad('Keep at least one product template');
     }
     if (Array.isArray(b.paper_sizes)) v.paper_sizes = b.paper_sizes.slice(0, 80).map(p => ({ w: +p.w, l: +p.l, gsm: (Array.isArray(p.gsm) ? p.gsm : String(p.gsm || '').split(/[ ,]+/)).map(Number).filter(x => x > 0).slice(0, 30) })).filter(p => p.w > 0 && p.l > 0);
-    for (const k of ['ream_sheets', 'make_ready_sheets', 'wastage_pct', 'backdate_days']) if (b[k] !== undefined) { const n = Number(b[k]); if (!(n >= 0) || n > 100000) bad(`Invalid value for ${k}`); v[k] = n; }
+    for (const k of ['ream_sheets', 'make_ready_sheets', 'wastage_pct', 'backdate_days', 'quote_valid_days', 'overhead_pct', 'vat_pct']) if (b[k] !== undefined) { const n = Number(b[k]); if (!(n >= 0) || n > 100000) bad(`Invalid value for ${k}`); v[k] = n; }
     if (v.ream_sheets < 1) bad('Sheets per ream must be at least 1');
     for (const k of ['order_types', 'customer_types']) if (Array.isArray(b[k])) v[k] = b[k].map(x => String(x).trim()).filter(Boolean).slice(0, 30);
     if (b.void_needs_approval !== undefined) v.void_needs_approval = !!b.void_needs_approval;
+    if (v.overhead_pct > 100 || v.vat_pct > 100) bad('Overhead / VAT % must be 100 or less');
+    if (b.quote_terms !== undefined) v.quote_terms = str(b.quote_terms, 2000);
     await tx(async c => {
       await c.query(`INSERT INTO settings(key,value) VALUES('press',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(v)]);
       await audit(c, req.user, 'update', 'press_settings', null, { keys: Object.keys(b) });
@@ -193,7 +199,7 @@ module.exports = function installPress(h) {
     const outs = await c.query(`SELECT o.*, s.name supplier FROM press_outsourcing o LEFT JOIN suppliers s ON s.id=o.supplier_id WHERE o.order_id=$1 ORDER BY o.id`, [id]);
     const costs = await c.query(`SELECT * FROM press_costs WHERE order_id=$1 ORDER BY date, id`, [id]);
     const mats = await c.query(`SELECT * FROM press_cust_materials WHERE order_id=$1 ORDER BY id`, [id]);
-    const invoices = await c.query(`SELECT id, inv_no, date, grand_total, status, void_reason, voided_at, void_requested_name, void_req_reason FROM press_invoices WHERE order_id=$1 ORDER BY id`, [id]);
+    const invoices = await c.query(`SELECT i.id, i.inv_no, i.date, i.grand_total, i.status, i.void_reason, i.voided_at, i.void_requested_name, i.void_req_reason, ${paidSql('press')} paid FROM press_invoices i WHERE i.order_id=$1 ORDER BY i.id`, [id]);
     const payments = await c.query(`SELECT p.*, COALESCE((SELECT SUM(amount) FROM payment_allocations WHERE payment_id=p.id),0) allocated FROM payments p WHERE order_id=$1 ORDER BY date, id`, [id]);
     const activity = await c.query(`SELECT * FROM press_activity WHERE order_id=$1 ORDER BY id DESC LIMIT 200`, [id]);
     const refunds = await c.query(`SELECT * FROM refunds WHERE order_id=$1 ORDER BY id`, [id]);
@@ -218,20 +224,117 @@ module.exports = function installPress(h) {
     if (adv && !(await lists()).payment_methods.includes(b.advance.method)) bad('Select the advance payment method');
     res.json(await tx(async c => {
       await idem(c, req);
-      const cust = (await c.query(`SELECT id, name FROM customers WHERE id=$1`, [b.customer_id])).rows[0]; if (!cust) bad('Select a customer');
-      const off = +b.officer_id ? (await c.query(`SELECT id, full_name FROM users WHERE id=$1`, [b.officer_id])).rows[0] : null;
-      const order_no = await nextNo(c, 'press_order');
-      const o = (await c.query(`INSERT INTO press_orders(order_no,date,customer_id,order_type,officer_id,officer_name,deadline,instructions,remarks,created_by,created_by_name,created_role)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-        [order_no, date, cust.id, str(b.order_type, 40) || ps.order_types[0], off?.id || u.id, off?.full_name || u.full_name, dateOrNull(b.deadline), str(b.instructions, 2000), str(b.remarks, 1000), u.id, u.full_name, u.role_name])).rows[0];
-      let sl = 0; for (const it of items) await insertItem(c, o.id, ++sl, it);
-      if (adv > 0) await recordPayment(c, u, { date, time: str(b.advance.time, 8), customer_id: cust.id, amount: adv, method: b.advance.method, reference: str(b.advance.reference), division: 'press', remarks: 'Advance for ' + order_no, order_id: o.id, allocations: [] });
-      await act(c, u, o.id, null, 'order', `Order created with ${items.length} product(s)${adv ? ' · advance ৳' + adv : ''}`);
-      await refreshOrder(c, o.id);
-      await audit(c, u, 'create', 'press_order', o.id, { order_no, items: items.length, advance: adv });
+      const o = await createOrder(c, u, b, date, items, adv, ps);
       return orderDetail(c, u, o.id);
     }));
   }));
+  /** shared by "New order" and "Quotation → order" so both follow exactly the same rules */
+  async function createOrder(c, u, b, date, items, adv, ps) {
+    const cust = (await c.query(`SELECT id, name FROM customers WHERE id=$1`, [b.customer_id])).rows[0]; if (!cust) bad('Select a customer');
+    const off = +b.officer_id ? (await c.query(`SELECT id, full_name FROM users WHERE id=$1`, [b.officer_id])).rows[0] : null;
+    const order_no = await nextNo(c, 'press_order');
+    const o = (await c.query(`INSERT INTO press_orders(order_no,date,customer_id,order_type,officer_id,officer_name,deadline,instructions,remarks,created_by,created_by_name,created_role)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [order_no, date, cust.id, str(b.order_type, 40) || ps.order_types[0], off?.id || u.id, off?.full_name || u.full_name, dateOrNull(b.deadline), str(b.instructions, 2000), str(b.remarks, 1000), u.id, u.full_name, u.role_name])).rows[0];
+    let sl = 0; for (const it of items) await insertItem(c, o.id, ++sl, it);
+    if (adv > 0) await recordPayment(c, u, { date, time: str(b.advance?.time, 8), customer_id: cust.id, amount: adv, method: b.advance.method, reference: str(b.advance?.reference), division: 'press', remarks: 'Advance for ' + order_no, order_id: o.id, allocations: [] });
+    await act(c, u, o.id, null, 'order', `Order created with ${items.length} product(s)${adv ? ' · advance ৳' + adv : ''}`);
+    await refreshOrder(c, o.id);
+    await audit(c, u, 'create', 'press_order', o.id, { order_no, items: items.length, advance: adv });
+    return o;
+  }
+
+  /* ============ QUOTATIONS — price offer before an order; convert to an order in one step ============ */
+  const Q_STATUS = ['Draft', 'Sent', 'Accepted', 'Rejected', 'Converted'];
+  const quoteView = qt => ({ ...qt, expired: !!(qt.valid_until && qt.valid_until < today() && ['Draft', 'Sent'].includes(qt.status)) });
+  function cleanQuote(b, ps) {
+    if (!Array.isArray(b.items) || !b.items.length) bad('Add at least one product');
+    if (b.items.length > 60) bad('Too many products');
+    const items = b.items.map(it => { const x = cleanItem(it, ps.templates); delete x._steps; return x; });
+    const subtotal = r2(items.reduce((a, i) => a + i.total, 0));
+    const discount = Math.max(0, +b.discount || 0); if (discount > subtotal) bad('Discount cannot be more than the subtotal');
+    return { items, subtotal, discount: r2(discount), total: r2(subtotal - discount) };
+  }
+  async function loadQuote(c, u, id, lock) {
+    const qt = (await c.query(`SELECT * FROM press_quotes WHERE id=$1 ${lock ? 'FOR UPDATE' : ''}`, [id])).rows[0]; if (!qt) bad('Quotation not found', 404);
+    if (!canSeeAll(u) && qt.created_by !== u.id && qt.officer_id !== u.id) bad('This quotation belongs to another officer', 403);
+    return qt;
+  }
+  app.get('/api/press/quotes', can('press.view', 'press.orders'), wrap(async (req, res) => {
+    const { from = '1900-01-01', to = '2999-12-31', status = '', customer = '' } = req.query;
+    const mine = canSeeAll(req.user) ? '' : String(req.user.id);
+    const rows = await q(`SELECT x.*, c.name customer, c.phone, o.order_no FROM press_quotes x JOIN customers c ON c.id=x.customer_id LEFT JOIN press_orders o ON o.id=x.order_id
+      WHERE x.date BETWEEN $1 AND $2 AND ($3='' OR c.id=$3::int) AND ($4='' OR x.created_by=$4::int OR x.officer_id=$4::int) ORDER BY x.date DESC, x.id DESC LIMIT 2000`, [from, to, String(customer), mine]);
+    res.json(rows.map(quoteView).filter(r => !status || (status === 'Expired' ? r.expired : r.status === status && !r.expired)));
+  }));
+  app.get('/api/press/quotes/:id', can('press.view', 'press.orders'), wrap(async (req, res) => res.json(await tx(async c => {
+    const qt = await loadQuote(c, req.user, +req.params.id);
+    const cust = (await c.query(`SELECT name customer, company, phone, address, email FROM customers WHERE id=$1`, [qt.customer_id])).rows[0];
+    const ord = qt.order_id ? (await c.query(`SELECT order_no FROM press_orders WHERE id=$1`, [qt.order_id])).rows[0] : null;
+    return quoteView({ ...qt, ...cust, order_no: ord?.order_no || null });
+  }))));
+  app.post('/api/press/quotes', can('press.orders'), wrap(async (req, res) => {
+    const b = req.body, u = req.user, ps = await pressSettings(), date = entryDate(req, b.date), x = cleanQuote(b, ps);
+    res.json(await tx(async c => {
+      await idem(c, req);
+      const cust = (await c.query(`SELECT id FROM customers WHERE id=$1`, [b.customer_id])).rows[0]; if (!cust) bad('Select a customer');
+      const no = await nextNo(c, 'press_quote');
+      const r = (await c.query(`INSERT INTO press_quotes(quote_no,date,valid_until,customer_id,subject,items,subtotal,discount,total,notes,terms,status,officer_id,officer_name,created_by,created_by_name)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Draft',$12,$13,$12,$13) RETURNING *`,
+        [no, date, dateOrNull(b.valid_until) || addDaysIso(date, +ps.quote_valid_days || 15), cust.id, str(b.subject, 200), JSON.stringify(x.items), x.subtotal, x.discount, x.total, str(b.notes, 2000), str(b.terms, 2000) || ps.quote_terms || null, u.id, u.full_name])).rows[0];
+      await audit(c, u, 'create', 'press_quote', r.id, { quote_no: no, total: x.total });
+      return r;
+    }));
+  }));
+  app.put('/api/press/quotes/:id', can('press.orders'), wrap(async (req, res) => {
+    const b = req.body, u = req.user, ps = await pressSettings(), x = cleanQuote(b, ps);
+    res.json(await tx(async c => {
+      const qt = await loadQuote(c, u, +req.params.id, true);
+      if (!['Draft', 'Sent', 'Rejected'].includes(qt.status)) bad(`A ${qt.status.toLowerCase()} quotation cannot be edited`);
+      const cust = (await c.query(`SELECT id FROM customers WHERE id=$1`, [b.customer_id || qt.customer_id])).rows[0]; if (!cust) bad('Select a customer');
+      const date = b.date && b.date !== qt.date ? entryDate(req, b.date) : qt.date;
+      const r = (await c.query(`UPDATE press_quotes SET date=$1, valid_until=$2, customer_id=$3, subject=$4, items=$5, subtotal=$6, discount=$7, total=$8, notes=$9, terms=$10, revision=revision+1, updated_by_name=$11, updated_at=now() WHERE id=$12 RETURNING *`,
+        [date, dateOrNull(b.valid_until) || qt.valid_until, cust.id, str(b.subject, 200), JSON.stringify(x.items), x.subtotal, x.discount, x.total, str(b.notes, 2000), str(b.terms, 2000), u.full_name, qt.id])).rows[0];
+      await audit(c, u, 'update', 'press_quote', qt.id, { before: { total: qt.total }, after: { total: x.total } });
+      return r;
+    }));
+  }));
+  app.post('/api/press/quotes/:id/status', can('press.orders'), wrap(async (req, res) => {
+    const st = req.body.status; if (!['Sent', 'Accepted', 'Rejected', 'Draft'].includes(st)) bad('Unknown status');
+    res.json(await tx(async c => {
+      const qt = await loadQuote(c, req.user, +req.params.id, true);
+      if (qt.status === 'Converted') bad('This quotation is already converted to an order');
+      if (st === 'Rejected' && !str(req.body.reason)) bad('Write why the customer rejected it');
+      const r = (await c.query(`UPDATE press_quotes SET status=$1, status_note=$2, status_at=now(), status_by_name=$3 WHERE id=$4 RETURNING *`, [st, str(req.body.reason, 500), req.user.full_name, qt.id])).rows[0];
+      await audit(c, req.user, 'status', 'press_quote', qt.id, { from: qt.status, to: st });
+      return r;
+    }));
+  }));
+  app.post('/api/press/quotes/:id/convert', can('press.orders'), wrap(async (req, res) => {
+    const b = req.body, u = req.user, ps = await pressSettings(), date = entryDate(req, b.date);
+    const adv = Math.max(0, +(b.advance?.amount || 0));
+    if (adv && !(await lists()).payment_methods.includes(b.advance.method)) bad('Select the advance payment method');
+    res.json(await tx(async c => {
+      await idem(c, req);
+      const qt = await loadQuote(c, u, +req.params.id, true);
+      if (qt.status === 'Converted') bad('Already converted to an order');
+      if (qt.status === 'Rejected') bad('A rejected quotation cannot become an order — set it back to Draft first');
+      const items = qt.items.map(it => cleanItem(it, ps.templates));
+      if (+qt.discount > 0) items[0].notes = [items[0].notes, `Quotation discount ৳${qt.discount} — apply on the final invoice`].filter(Boolean).join(' · ');
+      const o = await createOrder(c, u, { customer_id: qt.customer_id, officer_id: qt.officer_id, order_type: b.order_type, deadline: b.deadline, instructions: str(b.instructions, 2000) || qt.subject, remarks: `From quotation ${qt.quote_no}`, advance: b.advance }, date, items, adv, ps);
+      await c.query(`UPDATE press_orders SET quote_id=$1 WHERE id=$2`, [qt.id, o.id]);
+      await c.query(`UPDATE press_quotes SET status='Converted', order_id=$1, status_at=now(), status_by_name=$2 WHERE id=$3`, [o.id, u.full_name, qt.id]);
+      await act(c, u, o.id, null, 'order', `Created from quotation ${qt.quote_no}`);
+      return { order_id: o.id, order_no: o.order_no };
+    }));
+  }));
+  app.delete('/api/press/quotes/:id', can('press.orders'), wrap(async (req, res) => res.json(await tx(async c => {
+    const qt = await loadQuote(c, req.user, +req.params.id, true);
+    if (qt.status !== 'Draft') bad('Only a draft quotation can be deleted — mark others Rejected instead');
+    await c.query(`DELETE FROM press_quotes WHERE id=$1`, [qt.id]);
+    await audit(c, req.user, 'delete', 'press_quote', qt.id, { quote_no: qt.quote_no });
+    return { ok: true };
+  }))));
   app.put('/api/press/orders/:id', can('press.orders'), wrap(async (req, res) => {
     const b = req.body, u = req.user, ps = await pressSettings();
     res.json(await tx(async c => {
@@ -568,11 +671,11 @@ module.exports = function installPress(h) {
     if (iu === 'sheet' && uu === 'ream') return qty * ream;
     bad(`${it.name} is stocked in ${it.unit}; it cannot be entered in ${unit}`);
   }
-  app.get('/api/store/items', can('press.view', 'press.store', 'internal', 'press.orders'), wrap(async (req, res) => {
+  app.get('/api/store/items', can('press.view', 'press.store', 'press.orders'), wrap(async (req, res) => {
     const { from = '1900-01-01', to = '2999-12-31', category = '' } = req.query;
     res.json(await q(`SELECT i.*, COALESCE(SUM(m.qty),0) balance, COALESCE(SUM(m.qty) FILTER (WHERE m.date<$1),0) opening_bal,
         COALESCE(SUM(m.qty) FILTER (WHERE m.qty>0 AND m.date BETWEEN $1 AND $2),0) qty_in, COALESCE(-SUM(m.qty) FILTER (WHERE m.qty<0 AND m.date BETWEEN $1 AND $2),0) qty_out
-      FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE NOT i.deleted AND ($3='' OR i.category=$3) GROUP BY i.id ORDER BY i.category, i.sort, i.name`, [from, to, category]));
+      FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE NOT i.deleted AND i.kind<>'internal' AND ($3='' OR i.category=$3) GROUP BY i.id ORDER BY i.category, i.sort, i.name`, [from, to, category]));
   }));
   function storeFields(b) {
     const name = str(b.name, 120) || [b.category === 'Paper' || b.category === 'Board' ? '' : '', b.paper_type, b.gsm ? b.gsm + ' GSM' : '', b.size, b.color].filter(Boolean).join(' ').trim();
@@ -583,11 +686,11 @@ module.exports = function installPress(h) {
       low_stock: Math.max(0, +b.low_stock || 0), remarks: str(b.remarks, 300), sort: parseInt(b.sort, 10) || 0, active: b.active !== false };
   }
   const SF = ['name', 'category', 'code', 'unit', 'size', 'gsm', 'paper_type', 'color', 'rack', 'width_in', 'roll_length', 'low_stock', 'remarks', 'sort', 'active'];
-  app.post('/api/store/items', can('press.store', 'internal'), wrap(async (req, res) => {
+  app.post('/api/store/items', can('press.store'), wrap(async (req, res) => {
     const f = storeFields(req.body), open = Math.max(0, +req.body.opening || 0), rate = Math.max(0, +req.body.rate || 0);
     res.json(await tx(async c => {
-      if ((await c.query(`SELECT 1 FROM gen_items WHERE lower(name)=lower($1) AND NOT deleted`, [f.name])).rowCount) bad('An item with this name already exists');
-      if (f.code && (await c.query(`SELECT 1 FROM gen_items WHERE lower(code)=lower($1) AND NOT deleted`, [f.code])).rowCount) bad('This item code is already used');
+      if ((await c.query(`SELECT 1 FROM gen_items WHERE lower(name)=lower($1) AND NOT deleted AND kind<>'internal'`, [f.name])).rowCount) bad('An item with this name already exists');
+      if (f.code && (await c.query(`SELECT 1 FROM gen_items WHERE lower(code)=lower($1) AND NOT deleted AND kind<>'internal'`, [f.code])).rowCount) bad('This item code is already used');
       const r = (await c.query(`INSERT INTO gen_items(kind,${SF.join(',')},avg_cost,created_by,created_by_name) VALUES('store',${SF.map((_, i) => '$' + (i + 1)).join(',')},$${SF.length + 1},$${SF.length + 2},$${SF.length + 3}) RETURNING *`,
         [...SF.map(k => f[k]), rate, req.user.id, req.user.full_name])).rows[0];
       if (!r.code) await c.query(`UPDATE gen_items SET code='ITM-'||lpad(id::text,4,'0') WHERE id=$1`, [r.id]);
@@ -596,20 +699,20 @@ module.exports = function installPress(h) {
       return r;
     }));
   }));
-  app.put('/api/store/items/:id', can('press.store', 'internal'), wrap(async (req, res) => {
+  app.put('/api/store/items/:id', can('press.store'), wrap(async (req, res) => {
     const f = storeFields(req.body);
     res.json(await tx(async c => {
-      const old = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted FOR UPDATE`, [req.params.id])).rows[0]; if (!old) bad('Item not found', 404);
-      if ((await c.query(`SELECT 1 FROM gen_items WHERE lower(name)=lower($1) AND NOT deleted AND id<>$2`, [f.name, old.id])).rowCount) bad('Another item has this name');
-      if (f.code && (await c.query(`SELECT 1 FROM gen_items WHERE lower(code)=lower($1) AND NOT deleted AND id<>$2`, [f.code, old.id])).rowCount) bad('This item code is already used');
+      const old = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted AND kind<>'internal' FOR UPDATE`, [req.params.id])).rows[0]; if (!old) bad('Item not found', 404);
+      if ((await c.query(`SELECT 1 FROM gen_items WHERE lower(name)=lower($1) AND NOT deleted AND kind<>'internal' AND id<>$2`, [f.name, old.id])).rowCount) bad('Another item has this name');
+      if (f.code && (await c.query(`SELECT 1 FROM gen_items WHERE lower(code)=lower($1) AND NOT deleted AND kind<>'internal' AND id<>$2`, [f.code, old.id])).rowCount) bad('This item code is already used');
       if (old.unit !== f.unit && (await c.query(`SELECT 1 FROM gen_moves WHERE item_id=$1 LIMIT 1`, [old.id])).rowCount) bad(`Unit cannot change after stock entries exist (unit: ${old.unit})`);
       if (!f.code) f.code = old.code;
       const r = (await c.query(`UPDATE gen_items SET ${SF.map((k, i) => `${k}=$${i + 1}`).join(',')}, updated_by_name=$${SF.length + 1}, updated_at=now() WHERE id=$${SF.length + 2} RETURNING *`, [...SF.map(k => f[k]), req.user.full_name, old.id])).rows[0];
       await audit(c, req.user, 'update', 'store_item', r.id, { before: old.name, after: r.name }); return r;
     }));
   }));
-  app.delete('/api/store/items/:id', can('press.store', 'internal'), wrap(async (req, res) => res.json(await tx(async c => {
-    const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted FOR UPDATE`, [req.params.id])).rows[0]; if (!it) bad('Item not found', 404);
+  app.delete('/api/store/items/:id', can('press.store'), wrap(async (req, res) => res.json(await tx(async c => {
+    const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted AND kind<>'internal' FOR UPDATE`, [req.params.id])).rows[0]; if (!it) bad('Item not found', 404);
     const used = (await c.query(`SELECT 1 FROM gen_moves WHERE item_id=$1 UNION ALL SELECT 1 FROM press_issue_lines WHERE stock_item_id=$1 UNION ALL SELECT 1 FROM gen_invoice_items WHERE film_item_id=$1 OR paper_item_id=$1 LIMIT 1`, [it.id])).rowCount;
     if (used) {
       const bal = await itemBal(c, it.id); if (Math.abs(bal) > 1e-9) bad(`${it.name} still has ${qf(bal)} ${it.unit} in stock. Adjust it to zero first, then delete.`);
@@ -617,13 +720,13 @@ module.exports = function installPress(h) {
     } else await c.query(`DELETE FROM gen_items WHERE id=$1`, [it.id]);
     await audit(c, req.user, 'delete', 'store_item', it.id, { name: it.name, kept_history: !!used }); return { ok: true, archived: !!used };
   }))));
-  app.get('/api/store/moves', can('press.view', 'press.store', 'internal'), wrap(async (req, res) => {
+  app.get('/api/store/moves', can('press.view', 'press.store'), wrap(async (req, res) => {
     const { from = '1900-01-01', to = '2999-12-31', item = '', type = '' } = req.query;
     res.json(await q(`SELECT m.*, i.name item, i.code, i.unit, i.category FROM gen_moves m JOIN gen_items i ON i.id=m.item_id
-      WHERE m.date BETWEEN $1 AND $2 AND ($3='' OR m.item_id=$3::int) AND ($4='' OR m.type=$4) ORDER BY m.date DESC, m.id DESC LIMIT 3000`, [from, to, String(item), type]));
+      WHERE i.kind<>'internal' AND m.date BETWEEN $1 AND $2 AND ($3='' OR m.item_id=$3::int) AND ($4='' OR m.type=$4) ORDER BY m.date DESC, m.id DESC LIMIT 3000`, [from, to, String(item), type]));
   }));
   /* own use / wastage / adjustment (set counted quantity) */
-  app.post('/api/store/moves', can('press.store', 'internal'), wrap(async (req, res) => {
+  app.post('/api/store/moves', can('press.store'), wrap(async (req, res) => {
     const b = req.body, u = req.user, type = b.type, ps = await pressSettings();
     if (!['use', 'wastage', 'adjust', 'opening', 'stock_in'].includes(type)) bad('Select an entry type');
     if (type === 'adjust' && !perm(u, 'stock.adjust')) bad('Stock adjustments need the "Stock adjustments" permission', 403);
@@ -632,7 +735,7 @@ module.exports = function installPress(h) {
     const date = entryDate(req, b.date);
     res.json(await tx(async c => {
       await idem(c, req);
-      const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted`, [b.item_id])).rows[0]; if (!it) bad('Select an item');
+      const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted AND kind<>'internal'`, [b.item_id])).rows[0]; if (!it) bad('Select an item');
       await lockItem(c, it.id);
       const bal = await itemBal(c, it.id);
       let r;
@@ -654,7 +757,7 @@ module.exports = function installPress(h) {
   app.post('/api/store/moves/:id/void', can('stock.adjust'), wrap(async (req, res) => {
     const reason = str(req.body.reason); if (!reason) bad('Reason is required');
     res.json(await tx(async c => {
-      const m = (await c.query(`SELECT m.*, i.name FROM gen_moves m JOIN gen_items i ON i.id=m.item_id WHERE m.id=$1 FOR UPDATE OF m`, [req.params.id])).rows[0];
+      const m = (await c.query(`SELECT m.*, i.name FROM gen_moves m JOIN gen_items i ON i.id=m.item_id WHERE m.id=$1 AND i.kind<>'internal' FOR UPDATE OF m`, [req.params.id])).rows[0];
       if (!m || m.voided || m.is_reversal) bad('Entry not found / already voided');
       if (m.ref_type) bad(`This entry belongs to ${m.ref_no || m.ref_type}. Void that document instead.`);
       await lockItem(c, m.item_id);
@@ -686,7 +789,7 @@ module.exports = function installPress(h) {
         [pur_no, date, sup?.id || null, sup?.name || str(b.supplier_name, 120), str(b.bill_ref, 80), str(b.remarks, 500), u.id, u.full_name, u.role_name])).rows[0];
       let total = 0; const cats = new Set();
       for (const l of b.lines) {
-        const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted`, [l.item_id])).rows[0]; if (!it) bad('Select an item on every line');
+        const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted AND kind<>'internal'`, [l.item_id])).rows[0]; if (!it) bad('Select an item on every line');
         const typed = num(l.qty, `${it.name}: quantity`), rate = Number(l.rate || 0); if (!(rate >= 0)) bad(`${it.name}: rate must be 0 or more`);
         const qty = qf(toItemQty(it, typed, l.unit, ps.ream_sheets)), amount = r2(typed * rate), unitCost = qty ? amount / qty : 0;
         await lockItem(c, it.id); const bal = await itemBal(c, it.id);
@@ -753,7 +856,7 @@ module.exports = function installPress(h) {
       [issue_no, date, order?.id || null, item?.id || null, str(b.issued_by, 80) || u.full_name, str(b.received_by, 80), str(b.remarks, 500), u.id, u.full_name, u.role_name])).rows[0];
     const merged = new Map();
     for (const l of b.lines) {
-      const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted`, [l.item_id])).rows[0]; if (!it) bad('Select a material on every line');
+      const it = (await c.query(`SELECT * FROM gen_items WHERE id=$1 AND NOT deleted AND kind<>'internal'`, [l.item_id])).rows[0]; if (!it) bad('Select a material on every line');
       const qty = qf(toItemQty(it, num(l.qty, `${it.name}: quantity`), l.unit, ps.ream_sheets));
       merged.set(it.id, { it, qty: qf((merged.get(it.id)?.qty || 0) + qty) });
     }
@@ -915,11 +1018,12 @@ module.exports = function installPress(h) {
     const subtotal = r2(lines.reduce((s, l) => s + l.total, 0));
     const discount = r2(Math.max(0, +b.discount || 0)), adjustment = r2(+b.adjustment || 0);
     if (adjustment && !str(b.adjustment_note)) bad('Write a note for the adjustment');
-    const grand = r2(subtotal - discount + adjustment); if (grand < 0) bad('Final total cannot be negative');
+    const base = r2(subtotal - discount + adjustment); if (base < 0) bad('Final total cannot be negative');
+    const vatPct = +(await pressSettings()).vat_pct || 0, vat = r2(base * vatPct / 100), grand = r2(base + vat);   // VAT only when set in Press Settings
     const inv_no = await nextNo(c, 'press_inv');
-    const inv = (await c.query(`INSERT INTO press_invoices(inv_no,date,order_id,customer_id,status,subtotal,discount,adjustment,adjustment_note,grand_total,closed_early,close_reason,remarks,created_by,created_by_name,created_role)
-      VALUES($1,$2,$3,$4,'final',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-      [inv_no, date, o.id, o.customer_id, subtotal, discount, adjustment, str(b.adjustment_note, 300), grand, closeEarly, str(b.close_reason, 500), str(b.remarks, 500), u.id, u.full_name, u.role_name])).rows[0];
+    const inv = (await c.query(`INSERT INTO press_invoices(inv_no,date,order_id,customer_id,status,subtotal,discount,adjustment,adjustment_note,grand_total,closed_early,close_reason,remarks,created_by,created_by_name,created_role,vat_pct,vat_amount)
+      VALUES($1,$2,$3,$4,'final',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+      [inv_no, date, o.id, o.customer_id, subtotal, discount, adjustment, str(b.adjustment_note, 300), grand, closeEarly, str(b.close_reason, 500), str(b.remarks, 500), u.id, u.full_name, u.role_name, vatPct, vat])).rows[0];
     for (const l of lines) await c.query(`INSERT INTO press_invoice_items(invoice_id,item_id,product,description,qty,unit,unit_price,total) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [inv.id, l.item_id, l.product, l.description, l.qty, l.unit, l.unit_price, l.total]);
     // earlier payments of this order (advance, during work, at delivery) are applied first
     let left = grand;
@@ -1112,7 +1216,7 @@ module.exports = function installPress(h) {
           COALESCE((SELECT SUM(amount) FROM refunds WHERE NOT voided AND date_trunc('month',date)=m),0) refunds
         FROM generate_series(date_trunc('month',$1::date) - interval '11 months', date_trunc('month',$1::date), interval '1 month') m ORDER BY m`, [t]),
       q(`SELECT 'press' division, i.id, i.inv_no, i.date, i.grand_total, c.name customer, i.created_by_name, i.created_at ts FROM press_invoices i JOIN customers c ON c.id=i.customer_id WHERE i.status='final' ORDER BY i.created_at DESC LIMIT 8`),
-      q(`SELECT i.id, i.name, i.unit, i.category, i.low_stock, COALESCE(SUM(m.qty),0) balance FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE i.active AND NOT i.deleted GROUP BY i.id HAVING COALESCE(SUM(m.qty),0) <= i.low_stock AND i.low_stock > 0 ORDER BY i.category, i.name`),
+      q(`SELECT i.id, i.name, i.unit, i.category, i.low_stock, COALESCE(SUM(m.qty),0) balance FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE i.kind<>'internal' AND i.active AND NOT i.deleted GROUP BY i.id HAVING COALESCE(SUM(m.qty),0) <= i.low_stock AND i.low_stock > 0 ORDER BY i.category, i.name`),
       q(`SELECT o.id, o.order_no, o.deadline, o.status, c.name customer, (SELECT string_agg(product, ', ') FROM press_items WHERE order_id=o.id AND NOT cancelled) products
          FROM press_orders o JOIN customers c ON c.id=o.customer_id WHERE o.deadline < $1 AND o.status NOT IN ('delivered','invoiced','cancelled') ORDER BY o.deadline LIMIT 8`, [t]),
       q(`SELECT o.id, o.order_no, o.deadline, o.status, c.name customer, (SELECT string_agg(product, ', ') FROM press_items WHERE order_id=o.id AND NOT cancelled) products
@@ -1123,6 +1227,9 @@ module.exports = function installPress(h) {
   };
 
   const REPORTS = {
+    'orders-quotations': ['Quotations — register & conversion', `SELECT x.date, x.quote_no, c.name customer, x.officer_name officer,
+        CASE WHEN x.status IN ('Draft','Sent') AND x.valid_until < $4::date THEN 'Expired' ELSE x.status END quote_status, x.valid_until, x.total, o.order_no, COALESCE(x.status_note,'') note
+      FROM press_quotes x JOIN customers c ON c.id=x.customer_id LEFT JOIN press_orders o ON o.id=x.order_id WHERE x.date BETWEEN $1 AND $2 AND ($3='' OR x.customer_id=$3::int) ORDER BY x.date, x.id`, { total: 'total' }],
     'orders-date': ['Orders — date-wise', `SELECT o.date, o.order_no, c.name customer, o.order_type, o.officer_name officer, o.status, (SELECT COUNT(*) FROM press_items WHERE order_id=o.id AND NOT cancelled)::int products, o.total, o.deadline
       FROM press_orders o JOIN customers c ON c.id=o.customer_id WHERE o.date BETWEEN $1 AND $2 AND ($3='' OR o.customer_id=$3::int) ORDER BY o.date, o.id`, { total: 'total' }],
     'orders-customer': ['Orders — customer-wise', `SELECT c.name customer, c.phone, COUNT(*)::int orders, SUM(o.total) value, COUNT(*) FILTER (WHERE o.status IN ('delivered','invoiced'))::int completed
@@ -1147,9 +1254,9 @@ module.exports = function installPress(h) {
       LEFT JOIN (SELECT ci.item_id, SUM(ci.qty) qty FROM press_challan_items ci JOIN press_challans ch ON ch.id=ci.challan_id WHERE ch.status='active' GROUP BY 1) d ON d.item_id=i.id
       WHERE NOT i.cancelled AND o.status NOT IN ('cancelled','invoiced') AND i.qty - COALESCE(d.qty,0) > 0 ORDER BY o.deadline NULLS LAST, o.id`],
     'stock-current': ['Current stock (store)', `SELECT i.code, i.name item, i.category, i.size, i.gsm, i.rack, i.unit, COALESCE(SUM(m.qty),0) balance, i.low_stock min, i.avg_cost, COALESCE(SUM(m.qty),0)*COALESCE(i.avg_cost,0) value
-      FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE NOT i.deleted GROUP BY i.id ORDER BY i.category, i.name`, { value: 'value' }],
+      FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE NOT i.deleted AND i.kind<>'internal' GROUP BY i.id ORDER BY i.category, i.name`, { value: 'value' }],
     'stock-low': ['Low stock', `SELECT i.code, i.name item, i.category, i.unit, COALESCE(SUM(m.qty),0) balance, i.low_stock min, i.rack
-      FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE NOT i.deleted AND i.active GROUP BY i.id HAVING COALESCE(SUM(m.qty),0) <= i.low_stock ORDER BY i.category, i.name`],
+      FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE NOT i.deleted AND i.kind<>'internal' AND i.active GROUP BY i.id HAVING COALESCE(SUM(m.qty),0) <= i.low_stock ORDER BY i.category, i.name`],
     'purchases': ['Purchase report', `SELECT p.date, p.pur_no, COALESCE(s.name,p.supplier_name) supplier, g.name item, m.qty, g.unit, m.unit_cost rate, m.qty*m.unit_cost amount, p.bill_ref, CASE WHEN p.voided THEN 'VOID' ELSE '' END status
       FROM store_purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id JOIN gen_moves m ON m.ref_type='purchase' AND m.ref_id=p.id AND NOT m.is_reversal JOIN gen_items g ON g.id=m.item_id WHERE p.date BETWEEN $1 AND $2 ORDER BY p.date, p.id`, { amount: 'amount' }],
     'issues': ['Material issue report', `SELECT s.date, s.issue_no, o.order_no, pi.product, g.name item, l.qty, g.unit, l.unit_cost rate, l.qty*l.unit_cost cost, s.issued_by, s.received_by, CASE WHEN s.voided THEN 'VOID' ELSE '' END status
@@ -1157,10 +1264,10 @@ module.exports = function installPress(h) {
     'returns': ['Material return report', `SELECT r.date, r.return_no, s.issue_no, o.order_no, g.name item, r.qty, g.unit, r.condition, r.reason, r.received_by
       FROM press_returns r JOIN press_issues s ON s.id=r.issue_id JOIN gen_items g ON g.id=r.stock_item_id LEFT JOIN press_orders o ON o.id=s.order_id WHERE r.date BETWEEN $1 AND $2 ORDER BY r.date, r.id`],
     'adjustments': ['Stock adjustments', `SELECT m.date, g.name item, g.unit, m.before_qty previous, m.after_qty new_qty, m.qty change, m.purpose reason, m.created_by_name by, m.created_at entered
-      FROM gen_moves m JOIN gen_items g ON g.id=m.item_id WHERE m.type IN ('adj_in','adj_out') AND NOT m.is_reversal AND m.date BETWEEN $1 AND $2 ORDER BY m.date, m.id`],
+      FROM gen_moves m JOIN gen_items g ON g.id=m.item_id WHERE g.kind<>'internal' AND m.type IN ('adj_in','adj_out') AND NOT m.is_reversal AND m.date BETWEEN $1 AND $2 ORDER BY m.date, m.id`],
     'movement': ['Item movement', `SELECT m.date, g.name item, m.type, m.qty, g.unit, m.ref_no ref, COALESCE(m.purpose, m.party) note, m.created_by_name by
-      FROM gen_moves m JOIN gen_items g ON g.id=m.item_id WHERE m.date BETWEEN $1 AND $2 ORDER BY m.date, m.id`],
-    'wastage': ['Wastage / loss', `SELECT m.date, g.name item, -m.qty qty, g.unit, m.purpose reason, m.created_by_name by FROM gen_moves m JOIN gen_items g ON g.id=m.item_id WHERE m.type='wastage' AND NOT m.is_reversal AND m.date BETWEEN $1 AND $2
+      FROM gen_moves m JOIN gen_items g ON g.id=m.item_id WHERE g.kind<>'internal' AND m.date BETWEEN $1 AND $2 ORDER BY m.date, m.id`],
+    'wastage': ['Wastage / loss', `SELECT m.date, g.name item, -m.qty qty, g.unit, m.purpose reason, m.created_by_name by FROM gen_moves m JOIN gen_items g ON g.id=m.item_id WHERE g.kind<>'internal' AND m.type='wastage' AND NOT m.is_reversal AND m.date BETWEEN $1 AND $2
       UNION ALL SELECT r.date, g.name, r.qty, g.unit, 'Damaged return: ' || COALESCE(r.reason,''), r.created_by_name FROM press_returns r JOIN gen_items g ON g.id=r.stock_item_id WHERE r.condition='damaged' AND r.date BETWEEN $1 AND $2 ORDER BY 1`],
     'invoice-register': ['Invoice register (final)', `SELECT i.date, i.inv_no, o.order_no, c.name customer, i.subtotal, i.discount, i.adjustment, i.grand_total total, ${paidSql('press')} paid, i.grand_total - ${paidSql('press')} due
       FROM press_invoices i JOIN press_orders o ON o.id=i.order_id JOIN customers c ON c.id=i.customer_id WHERE i.status='final' AND i.date BETWEEN $1 AND $2 AND ($3='' OR i.customer_id=$3::int) ORDER BY i.date, i.id`, { total: 'total', paid: 'paid', due: 'due' }],
@@ -1215,7 +1322,7 @@ ALTER TABLE gen_items ADD COLUMN IF NOT EXISTS code TEXT;
 ALTER TABLE gen_items ADD COLUMN IF NOT EXISTS category TEXT;
 ALTER TABLE gen_items ADD COLUMN IF NOT EXISTS rack TEXT;
 ALTER TABLE gen_items ADD COLUMN IF NOT EXISTS avg_cost NUMERIC(14,4) DEFAULT 0;
-UPDATE gen_items SET category = CASE kind WHEN 'lamination' THEN 'Lamination Film' WHEN 'paper' THEN 'Paper' ELSE 'Consumables' END WHERE category IS NULL;
+UPDATE gen_items SET category = CASE kind WHEN 'lamination' THEN 'Lamination Film' WHEN 'paper' THEN 'Paper' ELSE 'Consumables' END WHERE category IS NULL AND kind<>'internal';
 UPDATE gen_items SET code = 'ITM-' || lpad(id::text, 4, '0') WHERE code IS NULL;
 ALTER TABLE gen_moves DROP CONSTRAINT IF EXISTS gen_moves_type_check;
 ALTER TABLE gen_moves ADD CONSTRAINT gen_moves_type_check CHECK (type IN ('opening','stock_in','purchase','use','job','issue','return','wastage','adj_in','adj_out'));
@@ -1233,6 +1340,10 @@ CREATE TABLE IF NOT EXISTS press_orders(id SERIAL PRIMARY KEY, order_no TEXT UNI
   deadline DATE, instructions TEXT, remarks TEXT, status TEXT NOT NULL DEFAULT 'pending', total NUMERIC(14,2) DEFAULT 0, quick BOOLEAN DEFAULT false,
   cancelled_at TIMESTAMPTZ, cancelled_by_name TEXT, cancel_reason TEXT, created_by INT, created_by_name TEXT, created_role TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ, updated_by_name TEXT);
 CREATE INDEX IF NOT EXISTS ix_po_date ON press_orders(date, status);
+CREATE TABLE IF NOT EXISTS press_quotes(id SERIAL PRIMARY KEY, quote_no TEXT UNIQUE, date DATE NOT NULL, valid_until DATE, customer_id INT NOT NULL REFERENCES customers(id), subject TEXT, items JSONB NOT NULL DEFAULT '[]',
+  subtotal NUMERIC(14,2) DEFAULT 0, discount NUMERIC(14,2) DEFAULT 0, total NUMERIC(14,2) DEFAULT 0, notes TEXT, terms TEXT, status TEXT NOT NULL DEFAULT 'Draft', status_note TEXT, status_at TIMESTAMPTZ, status_by_name TEXT,
+  revision INT DEFAULT 0, order_id INT REFERENCES press_orders(id), officer_id INT, officer_name TEXT, created_by INT, created_by_name TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ, updated_by_name TEXT);
+ALTER TABLE press_orders ADD COLUMN IF NOT EXISTS quote_id INT;
 CREATE TABLE IF NOT EXISTS press_items(id SERIAL PRIMARY KEY, order_id INT NOT NULL REFERENCES press_orders(id) ON DELETE CASCADE, sl INT, product TEXT NOT NULL, template TEXT, description TEXT,
   qty NUMERIC(14,2) NOT NULL, unit TEXT DEFAULT 'pcs', size TEXT, paper TEXT, gsm TEXT, colour TEXT, sides TEXT, finishing TEXT, unit_price NUMERIC(14,4) DEFAULT 0, total NUMERIC(14,2) DEFAULT 0,
   machine_id INT REFERENCES machines(id), plate_info TEXT, ins_printing TEXT, ins_lamination TEXT, ins_cutting TEXT, ins_binding TEXT, ins_diecut TEXT, ins_other TEXT, notes TEXT,
@@ -1267,15 +1378,17 @@ CREATE TABLE IF NOT EXISTS press_invoices(id SERIAL PRIMARY KEY, inv_no TEXT UNI
   void_requested_by INT, void_requested_name TEXT, void_requested_at TIMESTAMPTZ, void_req_reason TEXT, void_req_category TEXT,
   voided_at TIMESTAMPTZ, voided_by INT, voided_by_name TEXT, void_reason TEXT, void_category TEXT, void_approved_by_name TEXT, snapshot JSONB);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_press_inv_order ON press_invoices(order_id) WHERE status='final';
+ALTER TABLE press_invoices ADD COLUMN IF NOT EXISTS vat_pct NUMERIC(6,2) DEFAULT 0;
+ALTER TABLE press_invoices ADD COLUMN IF NOT EXISTS vat_amount NUMERIC(14,2) DEFAULT 0;
 CREATE TABLE IF NOT EXISTS press_invoice_items(id SERIAL PRIMARY KEY, invoice_id INT NOT NULL REFERENCES press_invoices(id) ON DELETE CASCADE, item_id INT REFERENCES press_items(id), product TEXT, description TEXT,
   qty NUMERIC(14,2), unit TEXT, unit_price NUMERIC(14,4), total NUMERIC(14,2));
 CREATE TABLE IF NOT EXISTS refunds(id SERIAL PRIMARY KEY, refund_no TEXT UNIQUE, date DATE NOT NULL, time TEXT, customer_id INT NOT NULL REFERENCES customers(id), amount NUMERIC(14,2) NOT NULL, method TEXT, reference TEXT,
   reason TEXT NOT NULL, order_id INT, related TEXT, voided BOOLEAN DEFAULT false, void_reason TEXT, created_by INT, created_by_name TEXT, created_role TEXT, created_at TIMESTAMPTZ DEFAULT now());
 CREATE INDEX IF NOT EXISTS ix_refund_c ON refunds(customer_id);
 `;
-module.exports.TABLES = ['machines', 'suppliers', 'press_orders', 'press_items', 'press_design_files', 'press_activity', 'store_purchases', 'press_issues', 'press_issue_lines', 'press_returns',
+module.exports.TABLES = ['machines', 'suppliers', 'press_orders', 'press_items', 'press_quotes', 'press_design_files', 'press_activity', 'store_purchases', 'press_issues', 'press_issue_lines', 'press_returns',
   'press_cust_materials', 'press_outsourcing', 'press_costs', 'press_challans', 'press_challan_items', 'press_invoices', 'press_invoice_items'];
-module.exports.SEQUENCES = [['press_order', 'ORD-'], ['press_dc', 'PRS-DC-'], ['press_inv', 'PRS-INV-'], ['issue', 'ISS-'], ['mreturn', 'RET-'], ['purchase', 'PUR-'], ['refund', 'RF-']];
+module.exports.SEQUENCES = [['press_order', 'ORD-'], ['press_quote', 'QT-'], ['press_dc', 'PRS-DC-'], ['press_inv', 'PRS-INV-'], ['issue', 'ISS-'], ['mreturn', 'RET-'], ['purchase', 'PUR-'], ['refund', 'RF-']];
 module.exports.PERMS = {
   'press.view': 'Press: view orders, production & store', 'press.orders': 'Press: create customers / orders / order sheet', 'press.orders.all': 'Press: see every officer\'s orders',
   'press.design': 'Press: design management', 'press.production': 'Press: production update & calendar', 'press.store': 'Store: purchase, issue, return, stock',

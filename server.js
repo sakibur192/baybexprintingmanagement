@@ -78,14 +78,13 @@ const PERMS = {
   ...PRESS.PERMS,
 };
 for (const k of ['general.view', 'general.invoice', 'general.stock', 'general.items']) delete PERMS[k];   // old "General" section now lives inside Printing Press + Store
-PERMS['internal'] = 'Store: internal use items (solvent, wash, developer…)';
 const ALL = Object.keys(PERMS);
 const DEFAULT_ROLES = {
   'Admin': ALL,
   'Manager': ['dashboard', 'ctp.view', 'pvc.view', 'ink', 'internal', 'press.view', 'press.orders', 'press.orders.all', 'press.design', 'press.production', 'press.store', 'press.delivery', 'press.invoice', 'press.invoice.void', 'press.costing', 'press.machines', 'press.suppliers', 'customers.edit', 'customers.view', 'accounts.view', 'reports', 'reports.employee', 'audit'],
   'Accountant': ['dashboard', 'ctp.view', 'pvc.view', 'ctp.invoice', 'pvc.invoice', 'customers.view', 'customers.edit', 'payments', 'expenses', 'accounts.view', 'reports', 'press.view', 'press.orders.all', 'press.invoice', 'press.costing', 'refunds'],
   'Marketing Officer': ['customers.view', 'customers.edit', 'press.view', 'press.orders', 'payments'],
-  'Store Staff': ['press.view', 'press.store', 'press.orders.all', 'internal', 'press.suppliers'],
+  'Store Staff': ['press.view', 'press.store', 'press.orders.all', 'press.suppliers'],
   'CTP Operator': ['dashboard', 'ctp.view', 'ctp.production', 'ctp.ownuse', 'ctp.invoice', 'ctp.challan', 'customers.view', 'customers.edit', 'internal'],
   'PVC Operator': ['dashboard', 'pvc.view', 'pvc.stockin', 'pvc.print', 'pvc.wastage', 'pvc.invoice', 'pvc.challan', 'ink', 'customers.view', 'customers.edit', 'internal'],
   'Designer': ['dashboard', 'pvc.view', 'pvc.print', 'pvc.invoice', 'ctp.view', 'ctp.invoice', 'customers.view', 'customers.edit', 'press.view', 'press.design', 'press.orders.all'],
@@ -447,7 +446,7 @@ async function migrateTenant(t, seed) {
       // one time: give existing system roles their Printing Press permissions, add the PDF expense categories
       for (const [name, perms] of Object.entries(DEFAULT_ROLES)) {
         const r = (await c.query(`SELECT permissions FROM roles WHERE name=$1 AND system`, [name])).rows[0]; if (!r) continue;
-        const add = perms.filter(p => p.startsWith('press.') || p === 'refunds' || p === 'internal');
+        const add = perms.filter(p => p.startsWith('press.') || p === 'refunds');
         await c.query(`UPDATE roles SET permissions=$1 WHERE name=$2`, [JSON.stringify([...new Set([...(r.permissions || []).filter(p => !p.startsWith('general.')), ...add])]), name]);
       }
       const L = (await c.query(`SELECT value FROM settings WHERE key='lists'`)).rows[0]?.value;
@@ -2022,7 +2021,7 @@ app.get('/api/dashboard', can('dashboard'), wrap(async (req, res) => {
     collection: coll.v, refunds: press.refunds, expenses: exp.v, receivables: rec, press,
     ctp: ctpStock, pvc: pvcStock, ink: (await lists()).ink_colors.map(c => ink.find(i => i.color === c) || { color: c, pcs: 0, liters: 0 }),
     recent, monthly, own_use: ownuse.v, prints, counts,
-    low: { ctp: ctpStock.filter(p => p.balance <= p.low_stock), pvc: pvcStock.filter(m => m.balance > 0 && m.balance <= m.low_stock_ft), store: press.low_store },
+    low: { ctp: ctpStock.filter(p => p.balance <= p.low_stock), pvc: pvcStock.filter(m => m.balance > 0 && m.balance <= m.low_stock_ft), store: press.low_store, internal: await q(`SELECT i.id, i.name, i.unit, COALESCE(SUM(m.qty),0)::float balance FROM gen_items i LEFT JOIN gen_moves m ON m.item_id=i.id WHERE i.kind='internal' AND i.active AND NOT i.deleted AND i.low_stock>0 GROUP BY i.id HAVING COALESCE(SUM(m.qty),0) <= i.low_stock ORDER BY i.name`) },
   });
 }));
 

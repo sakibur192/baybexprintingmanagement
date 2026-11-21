@@ -186,6 +186,11 @@ async function masterDelete(url, name, after) {
   if (!ok) return;
   try { const r = await api('DELETE', url, null, { idem: false }); toast('Deleted', r.archived ? 'Hidden from lists · history kept' : name || ''); await App.loadMeta(); after ? after() : App.refresh(); } catch (e) { fail(e); }
 }
+/* ---------------- Bangla help tips (close once → stays closed for this browser) ---------------- */
+const tipSeen = k => { try { return localStorage.getItem('bbx_tip_' + k) === '1'; } catch (e) { return false; } };
+const helpTip = (k, html) => tipSeen(k) ? '' : `<div class="helptip" data-tip="${k}"><span>💡</span><div>${html}</div><button class="x" title="Hide this tip">×</button></div>`;
+document.addEventListener('click', e => { const x = e.target.closest('.helptip .x'); if (!x) return; const t = x.closest('.helptip'); try { localStorage.setItem('bbx_tip_' + t.dataset.tip, '1'); } catch (er) { /* private mode */ } t.remove(); });
+function resetTips() { try { Object.keys(localStorage).filter(k => k.startsWith('bbx_tip_')).forEach(k => localStorage.removeItem(k)); } catch (e) { /* ignore */ } }
 /* ---------------- customer autocomplete ---------------- */
 function custPicker(container, { onPick, value = null, allowAdd = true, placeholder = 'Type customer name, phone or company…' } = {}) {
   let picked = value, items = [], idx = -1, list = null;
@@ -473,19 +478,34 @@ function companyHeader(sub = '') {
 }
 
 /* ---------------- app shell & router ---------------- */
+/* sidebar: rarely used items of a section fold into one "group" (e.g. Press tools) so the menu stays short */
+function navHTML(nav) {
+  let open = {}; try { open = JSON.parse(localStorage.getItem('bbx_navgrp') || '{}'); } catch (e) { /* ignore */ }
+  const btn = n => `<button class="nav" data-page="${n.id}">${ICON[n.icon]}<span>${n.label}</span></button>`;
+  let h = '', i = 0;
+  while (i < nav.length) {
+    const n = nav[i];
+    if (n.cap) { h += `<div class="cap">${n.cap}</div>`; i++; continue; }
+    if (!n.group) { h += btn(n); i++; continue; }
+    const g = n.group, items = []; while (i < nav.length && nav[i].group === g) items.push(nav[i++]);
+    h += `<button class="nav navgrp ${open[g] ? 'open' : ''}" data-grp="${esc(g)}">${ICON.gear}<span>${esc(g)}</span><span class="chev">▸</span></button><div class="navsub" ${open[g] ? '' : 'hidden'}>${items.map(btn).join('')}</div>`;
+  }
+  return h;
+}
 const NAV = [
   { cap: 'OVERVIEW' },
   { id: 'dashboard', label: 'Dashboard', icon: 'dash', perm: ['dashboard'] },
   { cap: 'PRINTING PRESS' },
-  { id: 'press-orders', label: 'Orders & Order Sheet', icon: 'invoice', perm: ['press.view', 'press.orders'] },
+  { id: 'press-orders', label: 'Orders', icon: 'invoice', perm: ['press.view', 'press.orders'] },
+  { id: 'press-quotes', label: 'Quotations', icon: 'doc', perm: ['press.view', 'press.orders'] },
   { id: 'press-production', label: 'Production & Design', icon: 'gear', perm: ['press.view', 'press.production', 'press.design'] },
-  { id: 'press-store', label: 'Store & Material Issue', icon: 'box', perm: ['press.view', 'press.store', 'internal'] },
-  { id: 'press-delivery', label: 'Delivery Challan', icon: 'truck', perm: ['press.view', 'press.delivery'] },
-  { id: 'press-invoices', label: 'Final Invoices', icon: 'register', perm: ['press.view', 'press.invoice'] },
-  { id: 'press-materials', label: 'Customer Materials', icon: 'layers', perm: ['press.view', 'press.orders', 'press.store'] },
-  { id: 'press-calc', label: 'Paper Calculator', icon: 'chart', perm: ['press.view', 'press.orders'] },
-  { id: 'press-machines', label: 'Machines', icon: 'print', perm: ['press.view', 'press.machines'] },
-  { id: 'press-suppliers', label: 'Suppliers & Outsourcing', icon: 'users', perm: ['press.suppliers', 'press.store'] },
+  { id: 'press-store', label: 'Store (paper, ink, plate…)', icon: 'box', perm: ['press.view', 'press.store'] },
+  { id: 'press-delivery', label: 'Delivery Challans', icon: 'truck', perm: ['press.view', 'press.delivery'] },
+  { id: 'press-invoices', label: 'Invoices', icon: 'register', perm: ['press.view', 'press.invoice'] },
+  { id: 'press-materials', label: 'Customer Materials', icon: 'layers', perm: ['press.view', 'press.orders', 'press.store'], group: 'Press tools' },
+  { id: 'press-calc', label: 'Paper Calculator', icon: 'chart', perm: ['press.view', 'press.orders'], group: 'Press tools' },
+  { id: 'press-machines', label: 'Machines', icon: 'print', perm: ['press.view', 'press.machines'], group: 'Press tools' },
+  { id: 'press-suppliers', label: 'Suppliers & Outsourcing', icon: 'users', perm: ['press.suppliers', 'press.store'], group: 'Press tools' },
   { cap: 'PVC / MEDIA DIVISION' },
   { id: 'pvc', label: 'PVC Inventory', icon: 'roll', perm: ['pvc.view'] },
   { id: 'pvc-print', label: 'PVC Print Entry', icon: 'print', perm: ['pvc.print'] },
@@ -506,6 +526,8 @@ const NAV = [
   { id: 'admin', label: 'Users & Settings', icon: 'gear', perm: ['users', 'settings', 'backup', 'audit'] },
   { id: 'android', label: 'App & Downloads', icon: 'phone', perm: ['dashboard'] },
   { id: 'billing', label: 'Subscription', icon: 'key', perm: ['billing'] },
+  { cap: 'INTERNAL' },
+  { id: 'internal', label: 'Internal Inventory', icon: 'box', perm: ['internal'] },
 ];
 const App = {
   user: null, meta: null, today: null, pages: {}, current: null,
@@ -572,7 +594,7 @@ const App = {
       : t.state === 'active' && t.days_left <= 5 ? `<div class="ribbon" style="margin:0 28px 0;background:linear-gradient(90deg,#fdf0e1,transparent)"><b>Subscription ends in ${t.days_left} day${t.days_left === 1 ? '' : 's'}</b>${can('billing') ? ` <a class="right" href="#/billing">Renew now →</a>` : ''}</div>` : '';
     const ann = this.announcement ? `<div class="ribbon" style="margin:8px 28px 0">📢 ${esc(this.announcement)}</div>` : '';
     $('#app').innerHTML = `<aside class="side" id="side"><div class="brand">${co.logo ? `<img src="${esc(co.logo)}" alt="" style="width:42px;height:42px;border-radius:12px;object-fit:contain;background:#fff;padding:3px">` : `<div class="logo"><b>${esc(initials(co.name))}</b></div>`}<div><strong>${esc(co.name || t.business_name || 'Business')}</strong><small>${esc((this.brand?.product || 'BAYBEX PRINTERS MANAGER').toUpperCase())}</small></div></div>
-      <nav>${nav.map(n => n.cap ? `<div class="cap">${n.cap}</div>` : `<button class="nav" data-page="${n.id}">${ICON[n.icon]}<span>${n.label}</span></button>`).join('')}</nav>
+      <nav>${navHTML(nav)}</nav>
       <div class="side-foot"><div class="row"><span class="dot pulse" style="color:#3fd19a"></span> ${esc(u.role_name)} · ID: ${esc(t.slug || '')}</div><div class="mt row" style="color:#6f89a3;gap:8px"><span style="background:#fff;border-radius:6px;padding:2px;display:grid"><img src="/brand/mark.png" alt="" style="height:16px"></span> Powered by ${esc(this.brand?.company || 'Baybex Digital')}</div></div></aside>
       <div class="overlay" id="ovl"></div>
       <main><header class="top" id="top"><button class="iconbtn menu-btn" id="mbtn">${ICON.menu}</button>
@@ -583,7 +605,8 @@ const App = {
           <div class="dropdown" id="dd"><button data-act="pw">${ICON.key} Change password</button><button data-act="out">${ICON.logout} Sign out</button></div></div>
       </header>${banner}${ann}<div id="view"></div></main>
       <button class="fab" id="fab" title="Quick entry">${ICON.plus}</button>`;
-    $$('.nav').forEach(b => b.onclick = () => { location.hash = '#/' + b.dataset.page; this.closeSide(); });
+    $$('.nav[data-page]').forEach(b => b.onclick = () => { location.hash = '#/' + b.dataset.page; this.closeSide(); });
+    $$('.navgrp').forEach(b => b.onclick = () => { const sub = b.nextElementSibling, on = sub.hidden; sub.hidden = !on; b.classList.toggle('open', on); try { const o = JSON.parse(localStorage.getItem('bbx_navgrp') || '{}'); o[b.dataset.grp] = on; localStorage.setItem('bbx_navgrp', JSON.stringify(o)); } catch (e) { /* ignore */ } });
     $('#mbtn').onclick = () => { $('#side').classList.add('open'); $('#ovl').classList.add('on'); };
     $('#ovl').onclick = () => this.closeSide();
     $('#theme').onclick = () => { const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; try { localStorage.setItem('sks_theme', t); } catch (e) {} $('#theme').innerHTML = t === 'dark' ? ICON.sun : ICON.moon; };
@@ -605,7 +628,8 @@ const App = {
     const def = NAV.find(n => n.id === page);
     const target = page && this.pages[page] ? page : home;
     if (def && !def.perm.some(p => this.user.perms.includes(p))) { $('#view').innerHTML = `<div class="panel"><div class="empty">${ICON.shield}You do not have access to this page.</div></div>`; return; }
-    $$('.nav').forEach(n => n.classList.toggle('active', n.dataset.page === target || (target.startsWith(n.dataset.page + '-') && !$(`.nav[data-page="${target}"]`))));
+    $$('.nav[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === target || (target.startsWith(n.dataset.page + '-') && !$(`.nav[data-page="${target}"]`))));
+    $$('.navsub').forEach(sub => { if ($('.nav.active', sub) && sub.hidden) { sub.hidden = false; sub.previousElementSibling.classList.add('open'); } });
     const pg = this.pages[target];
     $('#title').textContent = pg.title || def?.label || '';
     $('#kick').textContent = pg.kicker || String(App.meta.settings.company?.name || '').toUpperCase() + ' / ' + (def ? (NAV.slice(0, NAV.indexOf(def)).reverse().find(n => n.cap)?.cap || '') : '');

@@ -1,12 +1,12 @@
 /* Customers, accounts, payments, ledger, expenses */
 'use strict';
-function paymentModal({ customer = null, invoice = null, order = null } = {}, done) {
+function paymentModal({ customer = null, invoice = null, order = null, amount = null } = {}, done) {
   let cust = customer, open = [], orders = [], ord = order ? order.id : '';
   const m = modal({
     title: 'Receive payment', size: 'wide', icon: `<span class="feed-ic" style="background:var(--ok)">৳</span>`,
     body: `<div class="form" id="pmf"><div class="field span2">Customer <span class="req">*</span><div id="pmc"></div></div>${field('Date', dateInput())}${field('Time', timeInput())}
       <div class="field span2" id="pmo">Against press order<select name="order_id"><option value="">— no order (CTP / PVC / general payment) —</option></select></div>
-      ${field('Amount (৳) <span class="req">*</span>', `<input type="number" step="0.01" min="0.01" name="amount" value="${invoice ? invoice.due : ''}">`)}
+      ${field('Amount (৳) <span class="req">*</span>', `<input type="number" step="0.01" min="0.01" name="amount" value="${invoice ? invoice.due : amount || ''}">`)}
       ${field('Method', `<select name="method">${App.meta.payment_methods.map(p => opt(p, p)).join('')}</select>`)}
       ${field('Reference', `<input name="reference" placeholder="Txn ID / cheque no.">`)}
       ${field('Remarks', `<input name="remarks">`, 'span3')}</div>

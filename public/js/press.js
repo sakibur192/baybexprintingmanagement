@@ -58,13 +58,82 @@ function pressInvoiceDoc(inv) {
       ${inv.items.map((i, k) => `<tr><td>${k + 1}</td><td><b>${esc(i.product)}</b>${i.description ? `<div class="muted">${esc(i.description)}</div>` : ''}</td><td class="n">${qn(i.qty)} ${esc(i.unit || '')}</td><td class="n">${nf2.format(i.unit_price)}</td><td class="n">${nf2.format(i.total)}</td></tr>`).join('')}</tbody></table>
     <div class="row" style="align-items:flex-start;margin-top:10px">
       <div style="flex:1;font-size:12px"><div><b>In word:</b> ${inWords(inv.grand_total)}</div>${inv.adjustment_note ? `<div><b>Adjustment:</b> ${esc(inv.adjustment_note)}</div>` : ''}${inv.closed_early ? `<div><b>Order closed before full delivery:</b> ${esc(inv.close_reason || '')}</div>` : ''}${inv.remarks ? `<div><b>Remarks:</b> ${esc(inv.remarks)}</div>` : ''}</div>
-      <div class="sum"><div><span>Total amount</span><span>${nf2.format(inv.subtotal)}</span></div>${+inv.discount ? `<div><span>Discount</span><span>− ${nf2.format(inv.discount)}</span></div>` : ''}${+inv.adjustment ? `<div><span>Adjustment</span><span>${inv.adjustment > 0 ? '+' : '−'} ${nf2.format(Math.abs(inv.adjustment))}</span></div>` : ''}
+      <div class="sum"><div><span>Total amount</span><span>${nf2.format(inv.subtotal)}</span></div>${+inv.discount ? `<div><span>Discount</span><span>− ${nf2.format(inv.discount)}</span></div>` : ''}${+inv.adjustment ? `<div><span>Adjustment</span><span>${inv.adjustment > 0 ? '+' : '−'} ${nf2.format(Math.abs(inv.adjustment))}</span></div>` : ''}${+inv.vat_amount ? `<div><span>VAT ${+inv.vat_pct}%</span><span>+ ${nf2.format(inv.vat_amount)}</span></div>` : ''}
         <div class="k"><span>FINAL TOTAL</span><span>${nf2.format(inv.grand_total)}</span></div><div><span>Previous payments</span><span>${nf2.format(inv.previous_payments)}</span></div><div><span>Current payment</span><span>${nf2.format(inv.current_payment)}</span></div><div class="k"><span>BALANCE DUE</span><span>${nf2.format(inv.due)}</span></div></div></div>
     <div class="fine">N.B: ${esc(c.invoice_note || '')}</div>
     <div class="sign"><div>Customer's signature</div><div style="text-align:center">${c.seal ? `<img src="${esc(c.seal)}" style="height:60px;opacity:.85"><br>` : '<div style="height:40px"></div>'}Company seal</div><div>Authorized signature<br><span class="muted">${esc(inv.created_by_name || '')}</span></div></div></div>`;
 }
 
 /* ======================= ORDERS ======================= */
+
+/* ---------- guided progress: shows where the order is and the ONE next thing to do ---------- */
+function orderFlow(o, live) {
+  const waitDesign = live.filter(i => i.design_required && i.design_status !== 'Approved');
+  const notDone = live.filter(i => i.prod_status !== 'Completed');
+  const toDeliver = live.filter(i => i.remaining > 0);
+  const issued = o.issues.some(x => !x.voided);
+  const inv = o.invoice, invDue = inv ? r2(Math.max(0, +inv.grand_total - +(inv.paid || 0))) : null;
+  const st = {
+    order: 'done',
+    design: waitDesign.length ? 'todo' : 'done',
+    material: issued ? 'done' : notDone.length ? 'opt' : 'skip',
+    production: notDone.length ? 'todo' : 'done',
+    delivery: toDeliver.length ? (live.some(i => i.delivered > 0) ? 'part' : 'todo') : 'done',
+    invoice: inv ? 'done' : 'todo',
+    payment: inv && invDue <= 0 ? 'done' : 'todo',
+  };
+  let cur = null;
+  if (o.status === 'cancelled') cur = null;
+  else if (waitDesign.length) cur = 'design';
+  else if (notDone.length) cur = 'production';   // material issue is optional (service-only jobs need none) — offered as a second button
+  else if (toDeliver.length) cur = 'delivery';
+  else if (!inv) cur = 'invoice';
+  else if (invDue > 0) cur = 'payment';
+  const names = [['order', 'Order', 'অর্ডার'], ['design', 'Design', 'ডিজাইন'], ['material', 'Material', 'মালামাল'], ['production', 'Production', 'প্রোডাকশন'], ['delivery', 'Delivery', 'ডেলিভারি'], ['invoice', 'Invoice', 'ইনভয়েস'], ['payment', 'Payment', 'পেমেন্ট']];
+  const id = o.id, list = a => a.map(i => `<b>${esc(i.product)}</b>`).join(', ');
+  const CTA = {
+    design: [`${waitDesign.length}টি পণ্যের ডিজাইন কাস্টমারের অনুমোদনের অপেক্ষায়: ${list(waitDesign)}। কাস্টমার রাজি হলে <b>Customer approved</b> চাপুন।`, 'Open design', `go:design`],
+    production: [issued ? `${notDone.length}টি পণ্য প্রোডাকশনে: ${list(notDone)}। অপারেটরের কাছ থেকে খবর নিয়ে যে ধাপ শেষ হয়েছে তাতে ✓ দিন।`
+      : `ডিজাইন ঠিক আছে। স্টোর থেকে কাগজ / কালি / প্লেট লাগলে আগে <b>Issue material</b> দিন (স্টক কমবে, Issue Slip প্রিন্ট হবে)। তারপর প্রোডাকশনের যে ধাপ শেষ তাতে ✓ দিন।`, 'Update production', 'go:production', ...(issued ? [] : ['Issue material', 'issue'])],
+    delivery: [`প্রোডাকশন শেষ। কাস্টমারকে মাল দিন — একবারে না দিলে যতটুকু দিচ্ছেন ততটুকুর চালান (A5) হবে।`, 'Make delivery challan', 'challan'],
+    invoice: [`সব মাল ডেলিভারি হয়েছে। এখন ফাইনাল ইনভয়েস (A4) করুন — আগের সব পেমেন্ট নিজে থেকেই যোগ হবে।`, 'Make final invoice', 'invoice'],
+    payment: [`ইনভয়েস হয়ে গেছে। কাস্টমারের কাছে বাকি <b>${tk(invDue || 0)}</b> — টাকা পেলে লিখে রাখুন।`, 'Receive payment', 'pay'],
+  }[cur];
+  const done = o.status !== 'cancelled' && !cur;
+  const PERM = { design: ['press.design', 'press.orders'], material: ['press.store'], production: ['press.production'], delivery: ['press.delivery'], invoice: ['press.invoice'], payment: ['payments'] };
+  const allowed = cur && can(...PERM[cur]);
+  return { html: `<div class="flow">${names.map(([k, l, bn], i) => `<div class="fstep ${k === cur ? 'cur' : st[k]}"><span class="fdot">${st[k] === 'done' && k !== cur ? '✓' : st[k] === 'skip' ? '–' : i + 1}</span><b>${l}</b><small>${bn}${k === 'delivery' && st[k] === 'part' ? ' · আংশিক' : ''}${st[k] === 'opt' ? ' · ঐচ্ছিক' : ''}</small></div>`).join('')}</div>
+    ${CTA ? `<div class="cta"><div class="cta-t">${CTA[0]}</div><div class="row">${allowed ? `${CTA[3] && can('press.store') ? `<button class="btn ghost" data-flow="${CTA[4]}">${ICON.box} ${CTA[3]}</button>` : ''}<button class="btn big" data-flow="${CTA[2]}">${CTA[1]} →</button>` : `<span class="tag gray" style="font-size:12.5px;padding:6px 12px">এই কাজটি অন্য দায়িত্বপ্রাপ্ত কর্মী করবেন</span>`}</div></div>`
+      : done ? `<div class="cta ok"><div class="cta-t">✓ এই অর্ডারের সব কাজ শেষ — ডেলিভারি, ইনভয়েস ও পেমেন্ট সম্পূর্ণ।</div></div>` : ''}`,
+    bind(root, ctx) {
+      $$('[data-flow]', root).forEach(b => b.onclick = () => {
+        const a = b.dataset.flow;
+        if (a.startsWith('go:')) App.go(`press-orders/${id}/${a.slice(3)}`);
+        else if (a === 'issue') issueModal({ order: o }, () => App.refresh());
+        else if (a === 'challan') challanModal(o, () => App.refresh());
+        else if (a === 'invoice') invoiceModal(o, true);
+        else if (a === 'pay') paymentModal({ customer: o.customer, order: o, amount: invDue }, () => App.refresh());
+      });
+    } };
+}
+/* main tabs stay visible; rarely used ones sit under "More" */
+const sideTabs2 = (tabs, more, cur, base) => `<div class="row tabrow"><div class="tabs" style="flex:1;margin-bottom:0">${tabs.map(([k, l, n]) => `<button class="${k === cur ? 'on' : ''}" onclick="App.go('${base}/${k}')">${l}${n ? ` <span class="tag gray" style="padding:0 6px">${n}</span>` : ''}</button>`).join('')}</div>
+  ${more.length ? `<details class="more-menu"><summary class="btn sm ghost ${more.some(t => t[0] === cur) ? 'on' : ''}">${more.find(t => t[0] === cur)?.[1] || 'More'} ▾</summary><div class="more-list">${more.map(([k, l, n]) => `<button onclick="App.go('${base}/${k}')">${l}${n ? ` (${n})` : ''}</button>`).join('')}</div></details>` : ''}</div>`;
+
+
+/** guess the product type from what the user typed (Poster → Poster / Leaflet…, ডায়েরি → Diary) — they can still change it */
+const defaultTpl = ps => (ps.templates.find(t => /^other/i.test(t.name)) || ps.templates[0]).name;
+function guessTemplate(name, tpls) {
+  const n = String(name || '').toLowerCase(); if (!n.trim()) return null;
+  const words = n.split(/[^a-z\u0980-\u09ff0-9]+/).filter(w => w.length > 2);
+  const alias = { 'ডায়েরি': 'diary', 'ডায়রি': 'diary', 'খাতা': 'notebook', 'বই': 'book', 'পোস্টার': 'poster', 'লিফলেট': 'leaflet', 'ব্রোশিওর': 'brochure', 'কার্ড': 'card', 'বক্স': 'box', 'কার্টন': 'carton', 'মেমো': 'memo', 'রশিদ': 'receipt', 'লেমিনেশন': 'lamination', 'বাইন্ডিং': 'binding', 'কাটিং': 'cutting', 'calendar': 'poster', 'flyer': 'leaflet', 'sticker': 'poster', 'envelope': 'card', 'visiting': 'card', 'wedding': 'card', 'invoice': 'memo', 'cash': 'memo', 'medicine': 'box', 'sweet': 'box', 'shoe': 'box', 'footwear': 'box', 'pad': 'memo', 'magazine': 'book' };
+  const seg = t => t.name.toLowerCase().replace(/\(.*?\)/g, '').split('/').map(x => x.trim()).filter(x => x.length > 2);
+  const phrase = tpls.filter(t => seg(t).some(x => n.includes(x))).sort((a, b) => Math.max(...seg(b).map(x => n.includes(x) ? x.length : 0)) - Math.max(...seg(a).map(x => n.includes(x) ? x.length : 0)))[0];
+  if (phrase) return phrase.name;
+  const keys = words.map(w => alias[w] || w);
+  for (const k of keys) { const t = tpls.find(t => t.name.toLowerCase().split(/[^a-z]+/).some(x => x && (x === k || (k.length > 3 && x.startsWith(k.slice(0, 4)))))); if (t) return t.name; }
+  return null;
+}
 App.pages['press-orders'] = {
   title: 'Orders', f: null,
   async render(v, a, b) {
@@ -75,10 +144,15 @@ App.pages['press-orders'] = {
     const f = this.f = this.f || { from: monthStart(App.today).slice(0, 5) + '01-01', to: App.today, status: '', q: '', overdue: '' };
     const rows = await GET('/api/press/orders', f);
     const cnt = k => rows.filter(r => r.status === k).length;
-    v.innerHTML = `<div class="head"><div class="row" style="flex-wrap:wrap;gap:6px">
+    v.innerHTML = `${helpTip('orders', '<b>কাজের ধারা:</b> অর্ডার → ডিজাইন → মালামাল → প্রোডাকশন → ডেলিভারি → ইনভয়েস → পেমেন্ট। অর্ডার খুললেই উপরে দেখাবে এখন কী করতে হবে — শুধু বড় নীল বাটনটি চাপুন।')}
+      <div class="bigacts">${can('press.orders') ? `<button class="bigact" onclick="App.go('press-orders/new')"><b>${ICON.plus} New order</b><small>নতুন অর্ডার</small></button>` : ''}
+        ${can('press.orders') && can('press.invoice') && can('press.delivery') ? `<button class="bigact green" onclick="App.go('press-orders/counter')"><b>${ICON.money} Counter job</b><small>সাথে সাথে কাজ — ID কার্ড, লেমিনেশন</small></button>` : ''}
+        ${can('press.orders') ? `<button class="bigact light" onclick="App.go('press-quotes/new')"><b>${ICON.doc} New quotation</b><small>দামের প্রস্তাব</small></button>` : ''}
+        ${can('payments') ? `<button class="bigact light" id="opayq"><b>${ICON.money} Receive payment</b><small>টাকা গ্রহণ</small></button>` : ''}</div>
+      <div class="head"><div class="row" style="flex-wrap:wrap;gap:6px">
         <input type="date" class="inp" id="of" value="${f.from}" style="width:150px"><input type="date" class="inp" id="ot" value="${f.to}" style="width:150px"><button class="btn sm" id="ogo">Apply</button>
         <label class="check" style="margin-left:8px"><input type="checkbox" id="ovd" ${f.overdue ? 'checked' : ''}> Overdue only</label></div>
-        <div class="row">${can('press.orders') && can('press.invoice') && can('press.delivery') ? `<button class="btn ghost" onclick="App.go('press-orders/counter')">${ICON.money} Counter job</button>` : ''}${can('press.orders') ? `<button class="btn" onclick="App.go('press-orders/new')">${ICON.plus} New order</button>` : ''}</div></div>
+        <div class="row"></div></div>
       <div class="seg mb" id="ost">${[['', 'All', rows.length], ...Object.entries(OSTAT).map(([k, [l]]) => [k, l, cnt(k)])].map(([k, l, n]) => `<button type="button" data-s="${k}" class="${k === f.status ? 'on' : ''}">${l} ${n ? `<b>${n}</b>` : ''}</button>`).join('')}</div>
       <div class="panel"><div id="otbl"></div></div>`;
     const shown = f.status ? rows.filter(r => r.status === f.status) : rows;
@@ -95,6 +169,7 @@ App.pages['press-orders'] = {
     ], { onRow: r => App.go('press-orders/' + r.id), totals: true, empty: 'No orders in this period', id: 'po' });
     $$('#ost button', v).forEach(x => x.onclick = () => { f.status = x.dataset.s; App.refresh(); });
     $('#ogo', v).onclick = () => { Object.assign(f, { from: $('#of', v).value, to: $('#ot', v).value }); App.refresh(); };
+    if ($('#opayq', v)) $('#opayq', v).onclick = () => paymentModal({}, () => App.refresh());
     $('#ovd', v).onchange = e => { f.overdue = e.target.checked ? '1' : ''; App.refresh(); };
   },
 
@@ -102,16 +177,18 @@ App.pages['press-orders'] = {
   async form(v, id) {
     const [ps, machines, o] = await Promise.all([pressSet(true), GET('/api/press/machines'), id ? GET('/api/press/orders/' + id) : null]);
     let cust = o ? o.customer : (this.prefill?.customer || null); this.prefill = null;
-    const items = o ? o.items.filter(i => !i.cancelled).map(i => ({ ...i })) : [{ product: '', template: ps.templates[0].name, qty: '', unit: 'pcs', unit_price: '', design_required: true, design_source: 'inhouse', est_cost: {} }];
+    const items = o ? o.items.filter(i => !i.cancelled).map(i => ({ ...i })) : [{ product: '', template: defaultTpl(ps), qty: '', unit: 'pcs', unit_price: '', design_required: true, design_source: 'inhouse', est_cost: {} }];
     const officers = App.meta.users;
     v.innerHTML = `<div class="head"><button class="btn ghost" onclick="history.back()">← Back</button><div class="sub">${o ? 'Editing ' + esc(o.order_no) : 'Stock does not change when an order is created — only Material Issue takes stock out'}</div></div>
-      <div class="panel"><div class="form f4" id="oh">
-        <div class="field span2">Customer <span class="req">*</span><div id="ocp"></div></div>${field('Order date', dateInput('date', o?.date))}${field('Delivery deadline', `<input type="date" name="deadline" value="${o?.deadline || ''}">`)}
+      ${o ? '' : helpTip('order-form', '<b>নতুন অর্ডার:</b> কাস্টমার বাছুন → পণ্যের নাম, পরিমাণ ও দাম দিন → <b>Create order</b>। বাকি সব ঘর ঐচ্ছিক — পরে Edit করেও দেওয়া যায়। অর্ডার দিলে স্টক কমে না।')}
+      <div class="panel"><div id="oh"><div class="form f4">
+        <div class="field span2">Customer <span class="req">*</span><div id="ocp"></div></div>${field('Order date', dateInput('date', o?.date), '', 'খাতা থেকে তুললে খাতার তারিখ দিন')}${field('Delivery deadline', `<input type="date" name="deadline" value="${o?.deadline || ''}">`)}
+        ${o ? '' : field('Advance received (৳)', `<input type="number" min="0" step="0.01" name="adv" value="0">`)}${o ? '' : field('Advance method', `<select name="adv_method">${App.meta.payment_methods.map(m => opt(m, m)).join('')}</select>`)}</div>
+        <details class="fold" ${o && (o.instructions || o.remarks) ? 'open' : ''}><summary>More (order type, marketing officer, instructions) — optional</summary><div class="form f4 mt">
         ${field('Order type', `<select name="order_type">${ps.order_types.map(t => opt(t, t, o?.order_type)).join('')}</select>`)}
         ${field('Marketing officer', `<select name="officer_id">${officers.map(u => opt(u.id, u.full_name, o ? o.officer_id : App.user.id)).join('')}</select>`)}
         ${field('Special instructions', `<input name="instructions" value="${esc(o?.instructions || '')}">`, 'span2')}
-        ${o ? '' : field('Advance received (৳)', `<input type="number" min="0" step="0.01" name="adv" value="0">`)}${o ? '' : field('Advance method', `<select name="adv_method">${App.meta.payment_methods.map(m => opt(m, m)).join('')}</select>`)}
-        ${field('Remarks', `<input name="remarks" value="${esc(o?.remarks || '')}">`, o ? 'span2' : 'span2')}</div></div>
+        ${field('Remarks', `<input name="remarks" value="${esc(o?.remarks || '')}">`, 'span4')}</div></details></div></div>
       <div class="panel"><div class="head"><div><h2>Products in this order</h2><div class="sub">Each product has its own design, production, delivery and cost</div></div><button class="btn sm ghost" id="oadd">${ICON.plus} Add product</button></div><div id="oitems"></div>
         <div class="row mt" style="justify-content:flex-end"><div style="min-width:240px;border:1px solid var(--line);border-radius:12px;padding:10px 14px"><div class="row" style="justify-content:space-between;font-size:20px;font-weight:800"><span>Order total</span><span id="otot">৳ 0</span></div></div></div>
         <div class="actions"><button class="btn" id="osave">${ICON.check} ${o ? 'Save changes' : 'Create order'}</button></div></div>`;
@@ -122,20 +199,22 @@ App.pages['press-orders'] = {
           <span>${i + 1}. ${esc(it.product || 'New product')} ${it.qty ? `× ${qn(it.qty)}` : ''}</span><span class="row" style="gap:8px"><b data-lt>${tk((+it.qty || 0) * (+it.unit_price || 0))}</b>${items.length > 1 ? `<button type="button" class="btn xs ghost" data-rm="${i}" style="color:var(--danger)">✕</button>` : ''}</span></summary>
         <div class="form f4 mt">
           ${field('Product name <span class="req">*</span>', `<input data-k="product" value="${esc(it.product || '')}" placeholder="e.g. Leaflet, Diary, Medicine box">`)}
-          ${field('Product type (steps)', `<select data-k="template">${ps.templates.map(t => opt(t.name, t.name, it.template)).join('')}</select>`)}
-          ${field('Quantity <span class="req">*</span>', `<input type="number" min="0" step="any" data-k="qty" value="${esc(it.qty ?? '')}">`)}${field('Unit', `<input data-k="unit" value="${esc(it.unit || 'pcs')}">`)}
+          ${field('Quantity <span class="req">*</span>', `<input type="number" min="0" step="any" data-k="qty" value="${esc(it.qty ?? '')}">`)}${field('Unit price (৳)', `<input type="number" min="0" step="any" data-k="unit_price" value="${esc(it.unit_price ?? '')}">`)}
+          ${field('Product type', `<select data-k="template">${ps.templates.map(t => opt(t.name, t.name, it.template)).join('')}</select>`, '', 'কাজের ধাপগুলো এখান থেকে আসে')}
           ${field('Size', `<input data-k="size" value="${esc(it.size || '')}" placeholder="A4 / 8.5×11 in">`)}${field('Paper / board', `<input data-k="paper" value="${esc(it.paper || '')}" placeholder="Offset, Art card…">`)}
           ${field('GSM', `<input data-k="gsm" value="${esc(it.gsm || '')}">`)}${field('Printing colour', `<input data-k="colour" value="${esc(it.colour || '')}" placeholder="4 colour / 1 colour">`)}
-          ${field('Side', `<select data-k="sides">${['', 'One side', 'Two side'].map(x => opt(x, x || '—', it.sides)).join('')}</select>`)}${field('Unit price (৳)', `<input type="number" min="0" step="any" data-k="unit_price" value="${esc(it.unit_price ?? '')}">`)}
+        </div>
+        <details class="fold"><summary>More details (side, machine, finishing, design, dates) — optional</summary><div class="form f4 mt">
+          ${field('Unit', `<input data-k="unit" value="${esc(it.unit || 'pcs')}">`)}${field('Side', `<select data-k="sides">${['', 'One side', 'Two side'].map(x => opt(x, x || '—', it.sides)).join('')}</select>`)}
           ${field('Machine', `<select data-k="machine_id"><option value="">—</option>${machines.filter(m => m.active || m.id === it.machine_id).map(m => opt(m.id, m.name, it.machine_id)).join('')}</select>`)}
           ${field('Finishing', `<input data-k="finishing" value="${esc(it.finishing || '')}" placeholder="Lamination, die cut, binding…">`)}
           ${field('Description', `<input data-k="description" value="${esc(it.description || '')}">`, 'span2')}
           ${field('Design', `<select data-k="design_mode"><option value="inhouse" ${it.design_required !== false && it.design_source !== 'customer' ? 'selected' : ''}>Our designer makes it</option><option value="customer" ${it.design_required !== false && it.design_source === 'customer' ? 'selected' : ''}>Customer gives design (needs approval)</option><option value="none" ${it.design_required === false ? 'selected' : ''}>No design (service / customer material)</option></select>`, 'span2')}
           ${field('Planned start', `<input type="date" data-k="planned_start" value="${it.planned_start || ''}">`)}${field('Estimated completion', `<input type="date" data-k="est_completion" value="${it.est_completion || ''}">`)}
-        </div>
-        <details style="margin-top:8px"><summary class="small" style="cursor:pointer;font-weight:700">Order sheet instructions</summary><div class="form f2 mt">
+        </div></details>
+        <details class="fold"><summary>Order sheet instructions (plate, printing, lamination, cutting, binding…) — optional</summary><div class="form f2 mt">
           ${[['plate_info', 'Plate information'], ['ins_printing', 'Printing instructions'], ['ins_lamination', 'Lamination instructions'], ['ins_cutting', 'Cutting instructions'], ['ins_binding', 'Binding instructions'], ['ins_diecut', 'Die cutting instructions'], ['ins_other', 'Other finishing'], ['notes', 'Special notes']].map(([k, l]) => field(l, `<input data-k="${k}" value="${esc(it[k] || '')}">`)).join('')}</div></details>
-        ${can('press.costing') || !id ? `<details style="margin-top:8px"><summary class="small" style="cursor:pointer;font-weight:700">Estimated cost (job costing)</summary><div class="form f4 mt">
+        ${can('press.costing') || !id ? `<details class="fold"><summary>Estimated cost (for profit / loss) — optional</summary><div class="form f4 mt">
           ${Object.entries(COST).map(([k, l]) => field(l, `<input type="number" min="0" step="any" data-c="${k}" value="${(it.est_cost || {})[k] || ''}">`)).join('')}</div></details>` : ''}
       </details>`).join('');
       tot();
@@ -149,11 +228,13 @@ App.pages['press-orders'] = {
         else it[k] = e.target.value;
         if (k === 'qty' || k === 'unit_price') { $('[data-lt]', box).textContent = tk((+it.qty || 0) * (+it.unit_price || 0)); tot(); }
         if (k === 'product') $('summary span', box).firstChild.textContent = `${+box.dataset.i + 1}. ${it.product || 'New product'} `;
+        if (k === 'template') it._tplPicked = true;
+        if (k === 'product' && !it._tplPicked && !it.id) { const g = guessTemplate(it.product, ps.templates); if (g && g !== it.template) { it.template = g; const sel = $('[data-k=template]', box); if (sel) sel.value = g; } }
       }
       if (e.target.dataset.c) { it.est_cost = { ...(it.est_cost || {}), [e.target.dataset.c]: e.target.value }; }
     });
     $('#oitems', v).addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) { e.preventDefault(); items.splice(+b.dataset.rm, 1); draw(); } });
-    $('#oadd', v).onclick = () => { items.push({ product: '', template: ps.templates[0].name, qty: '', unit: 'pcs', unit_price: '', design_required: true, est_cost: {} }); draw(); };
+    $('#oadd', v).onclick = () => { items.push({ product: '', template: defaultTpl(ps), qty: '', unit: 'pcs', unit_price: '', design_required: true, est_cost: {} }); draw(); };
     const key = uid();
     $('#osave', v).onclick = () => busy($('#osave', v), async () => {
       if (!cust) { toast('Select a customer', '', 'warn'); return; }
@@ -172,6 +253,7 @@ App.pages['press-orders'] = {
     const [ps, store] = await Promise.all([pressSet(), GET('/api/store/items')]);
     let cust = null; const lines = [{ product: '', template: (ps.templates.find(t => /ID/i.test(t.name)) || ps.templates[0]).name, qty: 1, unit_price: '' }], mats = [];
     v.innerHTML = `<div class="head"><button class="btn ghost" onclick="history.back()">← Back</button><div class="sub">Walk-in / ready job: order, delivery challan and final invoice are made together — ID cards, lamination, binding, cutting…</div></div>
+      ${helpTip('counter-job', '<b>কাউন্টার জব:</b> দোকানে দাঁড়িয়ে যে কাজ সাথে সাথে দেওয়া হয় (ID কার্ড, লেমিনেশন, বাইন্ডিং)। একবার Save করলেই অর্ডার, চালান ও ইনভয়েস তিনটিই হয়ে যাবে। ব্যবহার করা ফিল্ম/কাগজ নিচে দিলে স্টোর থেকে কমবে।')}
       <div class="panel"><div class="form f4" id="qh"><div class="field span2">Customer <span class="req">*</span><div id="qcp"></div></div>${field('Date', dateInput())}${field('Received by', `<input name="receiver">`)}${field('Remarks', `<input name="remarks">`, 'span4')}</div></div>
       <div class="grid g2"><div class="panel"><div class="head"><h2>Jobs</h2><button class="btn sm ghost" id="qadd">${ICON.plus} Add</button></div><div id="ql"></div></div>
         <div class="panel"><div class="head"><div><h2>Materials used (from store)</h2><div class="sub">optional — film, paper… taken out of stock with an issue slip</div></div><button class="btn sm ghost" id="madd">${ICON.plus} Add</button></div><div id="ml"></div></div></div>
@@ -187,7 +269,8 @@ App.pages['press-orders'] = {
         <div class="field" style="align-self:end;text-align:right">${lines.length > 1 ? `<button class="btn xs ghost" data-rm="${i}" style="color:var(--danger)">✕</button>` : ''}</div></div>`).join(''); tot(); };
     const drawM = () => { $('#ml', v).innerHTML = mats.length ? mats.map((m, i) => `<div class="form f2" style="margin-bottom:6px" data-m="${i}">${field('Material', `<select data-k="item_id"><option value="">—</option>${store.filter(s => s.active).map(s => opt(s.id, `${s.name} (${qn(s.balance)} ${s.unit})`, m.item_id)).join('')}</select>`)}
         ${field('Qty', `<span class="row"><input type="number" min="0" step="any" data-k="qty" value="${esc(m.qty || '')}"><button class="btn xs ghost" data-mrm="${i}" style="color:var(--danger)">✕</button></span>`)}</div>`).join('') : '<div class="empty">No material taken from store</div>'; };
-    $('#ql', v).addEventListener('input', e => { const b = e.target.closest('[data-l]'); if (b && e.target.dataset.k) { lines[+b.dataset.l][e.target.dataset.k] = e.target.value; tot(); } });
+    $('#ql', v).addEventListener('input', e => { const b = e.target.closest('[data-l]'); if (b && e.target.dataset.k) { const ln = lines[+b.dataset.l], k = e.target.dataset.k; ln[k] = e.target.value; if (k === 'template') ln._tplPicked = true;
+      if (k === 'product' && !ln._tplPicked) { const g = guessTemplate(ln.product, ps.templates); const sel = $('[data-k=template]', b); if (g && sel) { ln.template = g; sel.value = g; } } tot(); } });
     $('#ql', v).addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) { lines.splice(+b.dataset.rm, 1); drawL(); } });
     $('#ml', v).addEventListener('input', e => { const b = e.target.closest('[data-m]'); if (b && e.target.dataset.k) mats[+b.dataset.m][e.target.dataset.k] = e.target.value; });
     $('#ml', v).addEventListener('click', e => { const b = e.target.closest('[data-mrm]'); if (b) { mats.splice(+b.dataset.mrm, 1); drawM(); } });
@@ -211,9 +294,11 @@ App.pages['press-orders'] = {
     $('#title').textContent = o.order_no;
     this.tab = tab || this.tab || 'overview';
     const live = o.items.filter(i => !i.cancelled);
-    const tabs = [['overview', 'Overview'], ['design', 'Design'], ['production', 'Production'], ['materials', 'Materials', o.issues.length + o.materials.length || ''], ['delivery', 'Delivery', o.challans.filter(c => c.status === 'active').length || ''],
-      ['invoice', 'Invoice & payments'], ...(o.costing ? [['costing', 'Job costing']] : []), ['outsourcing', 'Outsourcing', o.outsourcing.length || ''], ['activity', 'Activity']];
-    if (!tabs.some(t => t[0] === this.tab)) this.tab = 'overview';
+    const tabs = [['overview', 'Overview'], ['design', 'Design'], ['materials', 'Materials', o.issues.length + o.materials.length || ''], ['production', 'Production'], ['delivery', 'Delivery', o.challans.filter(c => c.status === 'active').length || ''],
+      ['invoice', 'Invoice & payments']];
+    const more = [...(o.costing ? [['costing', 'Job costing (profit)']] : []), ['outsourcing', 'Outsourcing', o.outsourcing.length || ''], ['activity', 'History']];
+    if (![...tabs, ...more].some(t => t[0] === this.tab)) this.tab = 'overview';
+    const flow = orderFlow(o, live);
     const due = o.invoice ? null : r2(o.total - o.paid);
     v.innerHTML = `<div class="head"><div class="row"><button class="btn ghost" onclick="App.go('press-orders')">← Orders</button>${oTag(o.status)}${o.overdue ? '<span class="tag red">Overdue</span>' : ''}</div>
         <div class="row">${can('press.orders') && !['invoiced', 'cancelled'].includes(o.status) ? `<button class="btn ghost" onclick="App.go('press-orders/${id}/edit')">Edit</button>` : ''}
@@ -227,7 +312,9 @@ App.pages['press-orders'] = {
         <div class="stat" style="--c:var(--ok)"><small>Paid so far</small><b>${tk(o.paid - o.refunded)}</b><div class="foot">${o.refunded ? `refunded ${tk(o.refunded)}` : (o.invoice ? 'invoice ' + esc(o.invoice.inv_no) : 'advance / payments')}</div></div>
         <div class="stat" style="--c:var(--danger)"><small>${o.invoice ? 'Invoice' : 'Not invoiced'}</small><b>${o.invoice ? tk(o.invoice.grand_total) : tk(Math.max(0, due))}</b><div class="foot">${o.invoice ? `<a href="#/press-invoices/${o.invoice.id}">${esc(o.invoice.inv_no)}</a>` : due < 0 ? `advance exceeds value by ${tk(-due)}` : 'expected balance'}</div></div></div>
       ${o.status === 'cancelled' ? `<div class="note danger">Cancelled by ${esc(o.cancelled_by_name)} · ${esc(o.cancel_reason || '')}${o.paid - o.refunded > 0 ? ` — <b>${tk(o.paid - o.refunded)}</b> received for this order is held as customer credit. <a href="javascript:void 0" id="orf">Refund it</a>` : ''}</div>` : ''}
-      ${sideTabs(tabs, this.tab, 'press-orders/' + id)}<div id="pane" class="tabpane"></div>`;
+      ${flow.html}
+      ${sideTabs2(tabs, more, this.tab, 'press-orders/' + id)}<div id="pane" class="tabpane"></div>`;
+    flow.bind(v);
     $('#osheet', v).onclick = () => printHTML(orderSheetDoc(o), { size: 'A4', orient: 'portrait' });
     if ($('#opay', v)) $('#opay', v).onclick = () => paymentModal({ customer: o.customer, order: o }, () => App.refresh());
     if ($('#orf', v)) $('#orf', v).onclick = () => refundModal({ customer: o.customer, order: o, amount: r2(o.paid - o.refunded) }, () => App.refresh());
@@ -241,8 +328,8 @@ App.pages['press-orders'] = {
         <td class="n">${qn(i.qty)} ${esc(i.unit)}</td><td>${dTag(i.design_status, i.design_required)}</td><td>${pTag(i.prod_status)}<div class="sub">${(i.steps || []).filter(s => s.done).length}/${(i.steps || []).length} steps</div></td>
         <td><span class="small">${qn(i.delivered)} / ${qn(i.qty)}</span>${progress(i.delivered, +i.qty)}</td><td class="n">${nf2.format(i.unit_price)}</td><td class="n">${tk(i.total)}</td></tr>`).join('')}</tbody></table></div>
       ${o.instructions ? `<div class="note mt">${esc(o.instructions)}</div>` : ''}</div>
-      <div class="grid g2"><div class="panel"><h2>Next step</h2><div class="mt">${this.nextStep(o, live)}</div></div>
-        <div class="panel"><h2>Details</h2><div class="kv mt"><span>Order type</span><b>${esc(o.order_type || '')}</b><span>Marketing officer</span><b>${esc(o.officer_name || '')}</b><span>Created by</span><b>${esc(o.created_by_name)} · ${fdt(o.created_at)}</b>${o.remarks ? `<span>Remarks</span><b>${esc(o.remarks)}</b>` : ''}</div></div></div>`;
+      <div class="grid g2"><div class="panel"><h2>Details</h2><div class="kv mt"><span>Order type</span><b>${esc(o.order_type || '')}</b><span>Marketing officer</span><b>${esc(o.officer_name || '')}</b><span>Created by</span><b>${esc(o.created_by_name)} · ${fdt(o.created_at)}</b>${o.remarks ? `<span>Remarks</span><b>${esc(o.remarks)}</b>` : ''}</div></div>
+        <div class="panel"><h2>Money</h2><div class="kv mt"><span>Order value</span><b>${tk(o.total)}</b><span>Received</span><b>${tk(o.paid - o.refunded)}</b>${o.invoice ? `<span>Invoice</span><b>${tk(o.invoice.grand_total)}</b><span>Balance due</span><b style="color:var(--danger)">${tk(Math.max(0, o.invoice.grand_total - (o.invoice.paid || 0)))}</b>` : ''}</div></div></div>`;
     $$('[data-go]', el).forEach(b => b.onclick = () => App.go(b.dataset.go));
   },
   nextStep(o, live) {
@@ -284,15 +371,19 @@ App.pages['press-orders'] = {
   },
   async t_production(el, o, live) {
     const machines = await GET('/api/press/machines');
-    el.innerHTML = live.map(i => `<div class="panel"><div class="head"><div><h2>${esc(i.product)} <span class="muted" style="font-weight:600">× ${qn(i.qty)}</span></h2><div class="sub">${esc(i.template || '')} · design ${dTag(i.design_status, i.design_required)}</div></div>${pTag(i.prod_status)}</div>
-      <div class="grid" style="grid-template-columns:1.2fr 1fr;gap:16px"><div><b class="small">Steps</b><div class="mt">${(i.steps || []).map((s, k) => `<label class="check" style="display:flex;padding:6px 0;border-bottom:1px dashed var(--line)"><input type="checkbox" data-step="${k}" data-i="${i.id}" ${s.done ? 'checked' : ''} ${can('press.production') && i.prod_status !== 'Cancelled' ? '' : 'disabled'}>
+    const nextOf = i => (i.steps || []).findIndex(s => !s.done);
+    el.innerHTML = helpTip('prod-tab', 'অপারেটর লগইন করেন না। তাঁদের কাছ থেকে খবর নিয়ে <b>✓ … done</b> বাটনে চাপুন — কবে শেষ হয়েছে সেই তারিখ জিজ্ঞেস করবে (খাতার তারিখ দিতে পারেন)।') + live.map(i => { const nx = nextOf(i), dn = (i.steps || []).filter(x => x.done).length, tot = (i.steps || []).length; return `<div class="panel"><div class="head"><div><h2>${esc(i.product)} <span class="muted" style="font-weight:600">× ${qn(i.qty)}</span></h2><div class="sub">${esc(i.template || '')} · design ${dTag(i.design_status, i.design_required)} · ${dn}/${tot} steps</div></div>${pTag(i.prod_status)}</div>
+      ${progress(dn, tot || 1)}
+      ${can('press.production') ? (nx >= 0 ? `<div class="cta" style="margin:12px 0"><div class="cta-t">পরের ধাপ: <b>${esc(i.steps[nx].name)}</b></div><button class="btn big" data-next="${i.id}" data-k="${nx}">✓ ${esc(i.steps[nx].name)} done</button></div>`
+        : i.good_qty == null ? `<div class="cta ok" style="margin:12px 0"><div class="cta-t">সব ধাপ শেষ। তৈরি মাল অফিসে জমা হলে ভালো ও নষ্ট পরিমাণ লিখুন।</div><button class="btn big green" data-fin="${i.id}">Submit to office (good / waste)</button></div>` : '') : ''}
+      <div class="grid" style="grid-template-columns:1.2fr 1fr;gap:16px"><div><b class="small">All steps</b><div class="mt">${(i.steps || []).map((s, k) => `<label class="check" style="display:flex;padding:6px 0;border-bottom:1px dashed var(--line)"><input type="checkbox" data-step="${k}" data-i="${i.id}" ${s.done ? 'checked' : ''} ${can('press.production') && i.prod_status !== 'Cancelled' ? '' : 'disabled'}>
           <span style="flex:1">${esc(s.name)}${/print|plate/i.test(s.name) && i.design_required && i.design_status !== 'Approved' ? ' <span class="tag orange">needs approved design</span>' : ''}</span><span class="sub">${s.done ? `${fdate(s.date)} · ${esc(s.by || '')}` : ''}</span></label>`).join('')}</div></div>
-        <div class="form f2" data-pf="${i.id}">${field('Status', `<select name="prod_status">${PS.prod_status.map(x => opt(x, x, i.prod_status)).join('')}</select>`)}${field('Machine', `<select name="machine_id"><option value="">—</option>${machines.map(m => opt(m.id, m.name, i.machine_id)).join('')}</select>`)}
+        <div><details class="fold" style="margin-top:0"><summary>Schedule, machine & staff — optional</summary><div class="form f2 mt" data-pf="${i.id}">${field('Status', `<select name="prod_status">${PS.prod_status.map(x => opt(x, x, i.prod_status)).join('')}</select>`)}${field('Machine', `<select name="machine_id"><option value="">—</option>${machines.map(m => opt(m.id, m.name, i.machine_id)).join('')}</select>`)}
           ${field('Planned start', `<input type="date" name="planned_start" value="${i.planned_start || ''}">`)}${field('Est. completion', `<input type="date" name="est_completion" value="${i.est_completion || ''}">`)}
           ${field('Actual start', `<input type="date" name="actual_start" value="${i.actual_start || ''}" max="${App.today}">`)}${field('Actual completion', `<input type="date" name="actual_completion" value="${i.actual_completion || ''}" max="${App.today}">`)}
           ${field('Assigned staff', `<input name="assigned_staff" value="${esc(i.assigned_staff || '')}" placeholder="operator names (they don't log in)">`, 'span2')}${field('Production notes', `<input name="prod_notes" value="${esc(i.prod_notes || '')}">`, 'span2')}
-          ${can('press.production') ? `<div class="span2 row" style="justify-content:space-between"><button class="btn sm ghost" data-fin="${i.id}">Submit to office (good / waste)</button><button class="btn sm" data-ps="${i.id}">Save</button></div>` : ''}
-          ${i.good_qty != null ? `<div class="span2 note">Submitted to office: good <b>${qn(i.good_qty)}</b> · waste <b>${qn(i.waste_qty)}</b></div>` : ''}</div></div></div>`).join('');
+          ${can('press.production') ? `<div class="span2 row" style="justify-content:flex-end"><button class="btn sm" data-ps="${i.id}">Save</button></div>` : ''}
+          </div></details>${i.good_qty != null ? `<div class="note mt">Submitted to office: good <b>${qn(i.good_qty)}</b> · waste <b>${qn(i.waste_qty)}</b></div>` : ''}</div></div></div>`; }).join('');
     el.onchange = async e => {
       const s = e.target.closest('[data-step]'); if (!s) return;
       let date = App.today;
@@ -300,6 +391,9 @@ App.pages['press-orders'] = {
       try { await POST(`/api/press/items/${s.dataset.i}/step`, { index: +s.dataset.step, done: s.checked, date }, { idem: false }); toast('Step updated'); App.refresh(); } catch (er) { s.checked = !s.checked; fail(er); }
     };
     el.onclick = async e => {
+      const nb = e.target.closest('[data-next]');
+      if (nb) { const it = live.find(x => x.id === +nb.dataset.next), k = +nb.dataset.k; const d = await askDate('When was "' + it.steps[k].name + '" done?'); if (!d) return;
+        try { await POST(`/api/press/items/${it.id}/step`, { index: k, done: true, date: d }, { idem: false }); toast('Step done', it.steps[k].name); App.refresh(); } catch (er) { fail(er); } return; }
       const b = e.target.closest('[data-ps]'), f = e.target.closest('[data-fin]');
       if (b) busy(b, async () => { await PUT(`/api/press/items/${b.dataset.ps}/production`, formData($(`[data-pf="${b.dataset.ps}"]`, el))); toast('Production saved'); App.refresh(); });
       if (f) {
@@ -358,6 +452,7 @@ App.pages['press-orders'] = {
         <div class="stat" style="--c:${c.actual_profit >= 0 ? 'var(--ok)' : 'var(--danger)'}"><small>Actual profit / loss</small><b>${tk(c.actual_profit)}</b><div class="foot">${c.selling ? Math.round(c.actual_profit / c.selling * 100) : 0}% margin</div></div></div>
       <div class="grid g2"><div class="panel"><h2>Estimated vs actual</h2><div class="tbl-wrap mt"><table><thead><tr><th>Cost</th><th class="n">Estimated</th><th class="n">Actual</th><th class="n">Difference</th></tr></thead><tbody>
         ${Object.entries(C).map(([k, l]) => `<tr><td>${l}</td><td class="n">${tk(c.est[k])}</td><td class="n">${tk(c.actual[k])}</td><td class="n" style="color:${c.actual[k] > c.est[k] ? 'var(--danger)' : 'var(--ok)'}">${tk(c.actual[k] - c.est[k])}</td></tr>`).join('')}
+        ${c.overhead_pct ? `<tr><td>Overhead ${c.overhead_pct}% <span class="sub">(electricity, rent, maintenance)</span></td><td class="n">${tk(c.est_overhead)}</td><td class="n">${tk(c.actual_overhead)}</td><td class="n">${tk(c.actual_overhead - c.est_overhead)}</td></tr>` : ''}
         <tr><th>Total</th><th class="n">${tk(c.est_total)}</th><th class="n">${tk(c.actual_total)}</th><th class="n">${tk(c.actual_total - c.est_total)}</th></tr></tbody></table></div>
         <div class="sub mt">Paper, ink, plate, film… come automatically from Material Issue (average purchase cost) minus usable returns. Outsourcing from the Outsourcing tab.</div></div>
       <div class="panel"><div class="head"><h2>Other actual costs</h2><button class="btn sm" id="ncost">${ICON.plus} Add cost</button></div><div class="sub">Labour, printing (machine), design, plate (CTP), transport…</div>
@@ -419,9 +514,9 @@ async function invoiceModal(o, allDel) {
     <div class="note">After finalizing, the invoice cannot be edited. Mistakes are corrected by VOID (the number is never reused). Payments can still be received later.</div>
     <div class="actions"><button class="btn ghost" data-x>Cancel</button><button class="btn" id="ivgo">${ICON.check} Finalize invoice</button></div>` });
   const sum = () => {
-    const sub = lines.reduce((s, l) => s + l.bill * l.unit_price, 0), d = +$('[name=discount]', m.el).value || 0, a = +$('[name=adjustment]', m.el).value || 0, tot = r2(sub - d + a);
+    const sub = lines.reduce((s, l) => s + l.bill * l.unit_price, 0), d = +$('[name=discount]', m.el).value || 0, a = +$('[name=adjustment]', m.el).value || 0, base = r2(sub - d + a), vp = +(App.meta.settings.press?.vat_pct || 0), vat = r2(base * vp / 100), tot = r2(base + vat);
     const prevPaid = Math.min(p.paid_advance, Math.max(0, tot));
-    $('#ivs', m.el).innerHTML = `<div class="row" style="justify-content:space-between"><span>Total amount</span><b>${tk(sub)}</b></div>${d ? `<div class="row" style="justify-content:space-between"><span>Discount</span><span>− ${tk(d)}</span></div>` : ''}${a ? `<div class="row" style="justify-content:space-between"><span>Adjustment</span><span>${tk(a)}</span></div>` : ''}
+    $('#ivs', m.el).innerHTML = `<div class="row" style="justify-content:space-between"><span>Total amount</span><b>${tk(sub)}</b></div>${d ? `<div class="row" style="justify-content:space-between"><span>Discount</span><span>− ${tk(d)}</span></div>` : ''}${a ? `<div class="row" style="justify-content:space-between"><span>Adjustment</span><span>${tk(a)}</span></div>` : ''}${vat ? `<div class="row" style="justify-content:space-between"><span>VAT ${vp}%</span><span>+ ${tk(vat)}</span></div>` : ''}
       <div class="row" style="justify-content:space-between;font-size:18px;font-weight:800"><span>Final total</span><span>${tk(tot)}</span></div><div class="row" style="justify-content:space-between"><span>Previous payments</span><span>${tk(prevPaid)}</span></div>
       <div class="row" style="justify-content:space-between;font-weight:800;color:var(--danger)"><span>Balance due</span><span>${tk(Math.max(0, tot - prevPaid))}</span></div>${p.paid_advance > tot ? `<div class="sub">Extra ${tk(p.paid_advance - tot)} stays as customer credit (refund possible).</div>` : ''}`;
   };
@@ -532,7 +627,7 @@ App.pages['press-production'] = {
   async render(v, sub) {
     if (['board', 'calendar', 'design'].includes(sub)) this.tab = sub;
     await pressSet();
-    v.innerHTML = `${sideTabs([['board', 'Production board'], ['calendar', 'Calendar'], ['design', 'Design queue']], this.tab, 'press-production')}<div id="pane" class="tabpane"></div>`;
+    v.innerHTML = `${helpTip('production', '<b>প্রোডাকশন বোর্ড:</b> প্রতিটি কার্ড একটি পণ্য। কার্ডে চাপ দিয়ে অর্ডার খুলুন, অপারেটরের কাছ থেকে খবর নিয়ে যে ধাপ শেষ তাতে ✓ দিন। লাল দাগ = ডেডলাইন পার।')}${sideTabs([['board', 'Production board'], ['calendar', 'Calendar'], ['design', 'Design queue']], this.tab, 'press-production')}<div id="pane" class="tabpane"></div>`;
     const pane = $('#pane', v);
     if (this.tab === 'design') return designQueue(pane);
     if (this.tab === 'calendar') return this.calendar(pane);
@@ -585,8 +680,8 @@ App.pages['press-store'] = {
     if (['stock', 'purchases', 'issues', 'returns', 'moves'].includes(sub)) this.tab = sub;
     const ps = await pressSet();
     const f = this.f = this.f || { from: monthStart(App.today), to: App.today, category: '' };
-    v.innerHTML = `<div class="head"><div class="row"><input type="date" class="inp" id="sf" value="${f.from}" style="width:150px"><input type="date" class="inp" id="st" value="${f.to}" style="width:150px"><button class="btn sm" id="sgo">Apply</button></div>
-      <div class="row">${can('press.store', 'internal') ? `<button class="btn ghost" id="sadd">${ICON.plus} Item</button>` : ''}${can('press.store') ? `<button class="btn green" id="spur">${ICON.plus} Purchase</button><button class="btn" id="siss">${ICON.truck} Issue material</button>` : ''}</div></div>
+    v.innerHTML = `${helpTip('store', '<b>স্টোর:</b> মাল কিনলে <b>Purchase</b> (স্টক বাড়ে)। প্রোডাকশনে দিলে <b>Issue material</b> (স্টক কমে, Issue Slip প্রিন্ট হয়)। গণনা না মিললে <b>Use / adjust</b>।')}<div class="head"><div class="row"><input type="date" class="inp" id="sf" value="${f.from}" style="width:150px"><input type="date" class="inp" id="st" value="${f.to}" style="width:150px"><button class="btn sm" id="sgo">Apply</button></div>
+      <div class="row">${can('press.store') ? `<button class="btn ghost" id="sadd">${ICON.plus} Item</button>` : ''}${can('press.store') ? `<button class="btn green" id="spur">${ICON.plus} Purchase</button><button class="btn" id="siss">${ICON.truck} Issue material</button>` : ''}</div></div>
       ${sideTabs([['stock', 'Items & stock'], ['purchases', 'Purchases'], ['issues', 'Issue slips'], ['returns', 'Returns'], ['moves', 'All movements']], this.tab, 'press-store')}<div id="pane" class="tabpane"></div>`;
     $('#sgo', v).onclick = () => { Object.assign(f, { from: $('#sf', v).value, to: $('#st', v).value }); App.refresh(); };
     if ($('#sadd', v)) $('#sadd', v).onclick = () => storeItemModal(null, () => App.refresh());
@@ -608,7 +703,7 @@ App.pages['press-store'] = {
         { k: 'opening_bal', label: 'B/F', n: 1, f: r => qn(r.opening_bal) }, { k: 'qty_in', label: 'In', n: 1, f: r => qn(r.qty_in) }, { k: 'qty_out', label: 'Out', n: 1, f: r => qn(r.qty_out) },
         { k: 'balance', label: 'Current stock', n: 1, f: r => `<b>${qn(r.balance)}</b> ${esc(r.unit)}${/^sheet$/i.test(r.unit) ? `<div class="sub">≈ ${qn(r.balance / ps.ream_sheets)} ream</div>` : ''}${r.active && +r.low_stock > 0 && +r.balance <= +r.low_stock ? ' <span class="tag orange">Low</span>' : ''}` },
         { k: 'low_stock', label: 'Minimum', n: 1, f: r => qn(r.low_stock) }, { k: 'avg_cost', label: 'Avg cost', n: 1, f: r => nf2.format(r.avg_cost || 0) },
-        { k: 'x', label: '', sort: false, f: r => `${can('press.store', 'internal') ? `<button class="btn xs ghost" data-mv="${r.id}">Use / adjust</button> <button class="btn xs ghost" data-ed="${r.id}">Edit</button> <button class="btn xs ghost" data-del="${r.id}" style="color:var(--danger)">${ICON.trash.replace('<svg', '<svg width="13"')}</button>` : ''}` },
+        { k: 'x', label: '', sort: false, f: r => `${can('press.store') ? `<button class="btn xs ghost" data-mv="${r.id}">Use / adjust</button> <button class="btn xs ghost" data-ed="${r.id}">Edit</button> <button class="btn xs ghost" data-del="${r.id}" style="color:var(--danger)">${ICON.trash.replace('<svg', '<svg width="13"')}</button>` : ''}` },
       ], { id: 'store', empty: 'No items — add paper, board, ink, plates, film, gum… ' });
       pane.onclick = e => {
         const ed = e.target.closest('[data-ed]'), dl = e.target.closest('[data-del]'), mv = e.target.closest('[data-mv]');
@@ -722,7 +817,7 @@ App.pages['press-delivery'] = {
     }
     const f = this.f = this.f || { from: monthStart(App.today), to: App.today, q: '' };
     const rows = await GET('/api/press/challans', f);
-    v.innerHTML = `<div class="head"><div class="row"><input type="date" class="inp" id="cf" value="${f.from}" style="width:150px"><input type="date" class="inp" id="ct" value="${f.to}" style="width:150px"><button class="btn sm" id="cgo">Apply</button></div><div class="sub">New challans are made from the order (Delivery tab)</div></div><div class="panel"><div id="ct1"></div></div>`;
+    v.innerHTML = `${helpTip('delivery', '<b>ডেলিভারি চালান:</b> নতুন চালান অর্ডারের ভেতর থেকে হয় (Orders → অর্ডার খুলুন → <b>Make delivery challan</b>)। এখানে সব চালানের তালিকা।')}<div class="head"><div class="row"><input type="date" class="inp" id="cf" value="${f.from}" style="width:150px"><input type="date" class="inp" id="ct" value="${f.to}" style="width:150px"><button class="btn sm" id="cgo">Apply</button></div><div class="sub">New challans are made from the order (Delivery tab)</div></div><div class="panel"><div id="ct1"></div></div>`;
     $('#cgo', v).onclick = () => { Object.assign(f, { from: $('#cf', v).value, to: $('#ct', v).value }); App.refresh(); };
     dataTable($('#ct1', v), rows.map(r => ({ ...r, _cls: r.status === 'cancelled' ? 'void' : '' })), [{ k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'dc_no', label: 'Challan', f: r => `<b>${esc(r.dc_no)}</b>` }, { k: 'order_no', label: 'Order' },
       { k: 'customer', label: 'Customer' }, { k: 'items', label: 'Delivered', f: r => `<span class="small">${esc(r.items || '')}</span>` }, { k: 'receiver', label: 'Receiver' }, { k: 'prepared_by', label: 'Prepared by' }, { k: 'status', label: 'Status', f: r => statusTag(r.status) }],
@@ -736,7 +831,7 @@ App.pages['press-invoices'] = {
     if (['final', 'void', 'void_requested'].includes(id)) this.tab = id;
     const f = this.f = this.f || { from: monthStart(App.today), to: App.today, q: '' };
     const rows = await GET('/api/press/invoices', { ...f, status: this.tab });
-    v.innerHTML = `<div class="head"><div class="row"><input type="date" class="inp" id="if" value="${f.from}" style="width:150px"><input type="date" class="inp" id="it" value="${f.to}" style="width:150px"><button class="btn sm" id="igo">Apply</button></div><div class="sub">Invoices are made from a fully delivered order</div></div>
+    v.innerHTML = `${helpTip('invoices', '<b>ইনভয়েস:</b> সব মাল ডেলিভারির পর অর্ডার থেকে ফাইনাল ইনভয়েস হয়। ভুল হলে মুছবেন না — ইনভয়েস খুলে <b>Void</b> করুন।')}<div class="head"><div class="row"><input type="date" class="inp" id="if" value="${f.from}" style="width:150px"><input type="date" class="inp" id="it" value="${f.to}" style="width:150px"><button class="btn sm" id="igo">Apply</button></div><div class="sub">Invoices are made from a fully delivered order</div></div>
       ${sideTabs([['final', 'Invoice register'], ['void', 'Void / cancelled register'], ['void_requested', 'Void requests']], this.tab, 'press-invoices')}<div class="panel"><div id="ivt"></div></div>`;
     $('#igo', v).onclick = () => { Object.assign(f, { from: $('#if', v).value, to: $('#it', v).value }); App.refresh(); };
     const cols = this.tab === 'void'
@@ -778,7 +873,7 @@ App.pages['press-materials'] = {
   title: 'Customer Materials',
   async render(v) {
     const rows = await GET('/api/press/materials');
-    v.innerHTML = `<div class="head"><div class="sub">Material customers bring for lamination, die cutting, cutting or binding — not part of our stock. No receiving challan.</div>${can('press.orders', 'press.store') ? `<button class="btn" id="rcv">${ICON.plus} Receive material</button>` : ''}</div><div class="panel"><div id="mt"></div></div>`;
+    v.innerHTML = `${helpTip('materials', '<b>কাস্টমারের মাল:</b> কাস্টমার নিজের কাগজ/কার্টন এনে শুধু লেমিনেশন, কাটিং বা বাইন্ডিং করালে এখানে লিখুন। এগুলো আমাদের স্টকে যোগ হয় না।')}<div class="head"><div class="sub">Material customers bring for lamination, die cutting, cutting or binding — not part of our stock. No receiving challan.</div>${can('press.orders', 'press.store') ? `<button class="btn" id="rcv">${ICON.plus} Receive material</button>` : ''}</div><div class="panel"><div id="mt"></div></div>`;
     materialsTable($('#mt', v), rows);
     if ($('#rcv', v)) $('#rcv', v).onclick = () => receiveMaterialModal({}, () => App.refresh());
   },
@@ -860,9 +955,13 @@ App.pages['press-settings'] = {
       <div><div class="panel"><h2>Rules</h2><div class="form f2 mt" id="rf">${field('Back-dated entry allowed (days)', `<input type="number" min="0" name="backdate_days" value="${ps.backdate_days}">`, 'span2', 'staff can enter work from the paper register after a power / internet cut; older needs the "Back-date entries" permission')}
           ${field('Sheets per ream', `<input type="number" min="1" name="ream_sheets" value="${ps.ream_sheets}">`)}${field('Make-ready sheets (default)', `<input type="number" min="0" name="make_ready_sheets" value="${ps.make_ready_sheets}">`)}${field('Wastage % (default)', `<input type="number" min="0" step="any" name="wastage_pct" value="${ps.wastage_pct}">`)}
           <label class="check span2"><input type="checkbox" name="void_needs_approval" ${ps.void_needs_approval ? 'checked' : ''}> Invoice void needs a second person's approval</label>
-          ${field('Order types (comma separated)', `<input name="order_types" value="${esc(ps.order_types.join(', '))}">`, 'span2')}</div></div>
+          ${field('Order types (comma separated)', `<input name="order_types" value="${esc(ps.order_types.join(', '))}">`, 'span2')}
+          ${field('Quotation valid for (days)', `<input type="number" min="0" name="quote_valid_days" value="${ps.quote_valid_days ?? 15}">`)}${field('VAT % on final invoice', `<input type="number" min="0" max="100" step="any" name="vat_pct" value="${ps.vat_pct || 0}">`, '', '0 = no VAT line')}
+          ${field('Overhead % in job costing', `<input type="number" min="0" max="100" step="any" name="overhead_pct" value="${ps.overhead_pct || 0}">`, 'span2', 'electricity, rent, maintenance — added on top of direct cost; 0 = off')}
+          ${field('Default quotation terms', `<textarea name="quote_terms" rows="2">${esc(ps.quote_terms || '')}</textarea>`, 'span2')}</div></div>
         <div class="panel"><div class="head"><div><h2>Paper size database</h2><div class="sub">inch · GSM list comma separated</div></div><button class="btn sm ghost" id="padd">${ICON.plus} Add size</button></div><div id="pl"></div></div></div></div>
-      <div class="actions"><button class="btn" id="psave">${ICON.check} Save settings</button></div>`;
+      <div class="actions"><button class="btn ghost" id="tipsback">💡 Show all help tips again</button><button class="btn" id="psave">${ICON.check} Save settings</button></div>`;
+    $('#tipsback', v).onclick = () => { resetTips(); toast('Help tips will show again'); };
     const T = ps.templates.map(t => ({ name: t.name, steps: t.steps.join('\n') })), P = ps.paper_sizes.map(p => ({ ...p, gsm: p.gsm.join(', ') }));
     const drawT = () => { $('#tl', v).innerHTML = T.map((t, i) => `<div class="kpi" style="margin-bottom:8px" data-t="${i}"><div class="row"><input class="inp" data-k="name" value="${esc(t.name)}" style="flex:1;font-weight:700"><button class="btn xs ghost" data-trm="${i}" style="color:var(--danger)">✕</button></div><textarea class="inp mt" data-k="steps" rows="3" style="width:100%">${esc(t.steps)}</textarea></div>`).join(''); };
     const drawP = () => { $('#pl', v).innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>W</th><th>L</th><th>GSM</th><th></th></tr></thead><tbody>${P.map((p, i) => `<tr data-p="${i}"><td><input class="inp" type="number" step="any" data-k="w" value="${p.w}" style="width:80px"></td><td><input class="inp" type="number" step="any" data-k="l" value="${p.l}" style="width:80px"></td><td><input class="inp" data-k="gsm" value="${esc(p.gsm)}"></td><td><button class="btn xs ghost" data-prm="${i}">✕</button></td></tr>`).join('')}</tbody></table></div>`; };
@@ -876,5 +975,133 @@ App.pages['press-settings'] = {
       await pressSet(true); await App.loadMeta(); toast('Settings saved');
     });
     drawT(); drawP();
+  },
+};
+
+/* ===================== QUOTATIONS ===================== */
+const QSTAT = { Draft: 'gray', Sent: 'blue', Accepted: 'green', Rejected: 'red', Converted: 'purple', Expired: 'orange' };
+const qStatus = x => x.expired ? 'Expired' : x.status;
+function quoteDoc(x) {
+  const c = App.meta.settings.company || {};
+  const rows = x.items.map((i, k) => `<tr><td>${k + 1}</td><td><b>${esc(i.product)}</b><div class="muted">${esc([i.description, i.size, i.paper && `${i.paper}${i.gsm ? ' ' + i.gsm + ' GSM' : ''}`, i.colour, i.sides, i.finishing].filter(Boolean).join(' · '))}</div></td>
+    <td class="n">${qn(i.qty)} ${esc(i.unit || '')}</td><td class="n">${nf2.format(i.unit_price)}</td><td class="n">${nf2.format(i.total)}</td></tr>`).join('');
+  return `<div class="doc" style="position:relative">${qStatus(x) === 'Rejected' ? '<div class="watermark">REJECTED</div>' : ''}
+    ${companyHeader(`<div style="text-align:right"><div class="doc-title">QUOTATION</div><div style="font-size:20px;font-weight:800;margin-top:8px">${esc(x.quote_no)}${x.revision ? ` <span class="muted" style="font-size:12px">rev ${x.revision}</span>` : ''}</div></div>`)}
+    <div class="meta"><div><b>Date:</b> ${fdate(x.date)}</div><div><b>Valid until:</b> ${fdate(x.valid_until)}</div>
+      <div><b>To:</b> ${esc(x.customer)}${x.company ? ' — ' + esc(x.company) : ''}</div><div><b>Phone:</b> ${esc(x.phone || '')}</div>
+      <div style="grid-column:1/-1"><b>Address:</b> ${esc(x.address || '')}</div>${x.subject ? `<div style="grid-column:1/-1"><b>Subject:</b> ${esc(x.subject)}</div>` : ''}</div>
+    <table><thead><tr><th>SL</th><th>Product / specification</th><th class="n">Quantity</th><th class="n">Unit price</th><th class="n">Amount</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="row" style="align-items:flex-start;margin-top:10px">
+      <div style="flex:1;font-size:12px"><div><b>In word:</b> ${inWords(x.total)}</div>${x.notes ? `<div class="mt"><b>Notes:</b> ${esc(x.notes)}</div>` : ''}${x.terms ? `<div class="mt"><b>Terms:</b> ${esc(x.terms)}</div>` : ''}</div>
+      <div class="sum">${+x.discount ? `<div><span>Subtotal</span><span>${nf2.format(x.subtotal)}</span></div><div><span>Discount</span><span>− ${nf2.format(x.discount)}</span></div>` : ''}<div class="k"><span>TOTAL</span><span>${nf2.format(x.total)}</span></div></div></div>
+    <div class="sign"><div>Customer's acceptance</div><div>Authorized signature &amp; seal<br><span class="muted">${esc(x.officer_name || x.created_by_name || '')}</span></div></div></div>`;
+}
+App.pages['press-quotes'] = {
+  title: 'Quotations',
+  async render(v, a, b) {
+    if (a === 'new') return this.form(v, null);
+    if (a && b === 'edit') return this.form(v, +a);
+    if (a) return this.detail(v, +a);
+    const f = this.f = this.f || { from: addDays(App.today, -90), to: App.today, status: '' };
+    const rows = await GET('/api/press/quotes', f);
+    v.innerHTML = `<div class="head"><div class="row" id="qst">${['', 'Draft', 'Sent', 'Accepted', 'Rejected', 'Converted', 'Expired'].map(s => `<button class="btn sm ${f.status === s ? '' : 'ghost'}" data-s="${s}">${s || 'All'}</button>`).join('')}</div>
+        <div class="row"><input type="date" class="inp" id="qf" value="${f.from}"><input type="date" class="inp" id="qt" value="${f.to}"><button class="btn sm ghost" id="qgo">Show</button>${can('press.orders') ? `<button class="btn" id="qnew">${ICON.plus} New quotation</button>` : ''}</div></div>
+      ${helpTip('quotes', '<b>কোটেশন = দামের প্রস্তাব।</b> স্টক বা হিসাবে কিছু বদলায় না। কাস্টমার রাজি হলে কোটেশন খুলে <b>Convert to order</b> চাপুন — সব পণ্য ও দাম নিয়ে অর্ডার তৈরি হবে।')}
+      <div class="panel" id="ql"></div>`;
+    dataTable($('#ql', v), rows, [
+      { k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'quote_no', label: 'Quotation', f: r => `<b>${esc(r.quote_no)}</b>` },
+      { k: 'customer', label: 'Customer', f: r => `${esc(r.customer)}<div class="sub">${esc(r.subject || '')}</div>` },
+      { k: 'valid_until', label: 'Valid until', f: r => fdate(r.valid_until) },
+      { k: 'status', label: 'Status', v: qStatus, f: r => `<span class="tag ${QSTAT[qStatus(r)]}">${qStatus(r)}</span>${r.order_no ? ` <span class="sub">→ ${esc(r.order_no)}</span>` : ''}` },
+      { k: 'officer_name', label: 'By' }, { k: 'total', label: 'Total', n: true, money: true, total: true, v: r => +r.total, f: r => tk(r.total) },
+    ], { onRow: r => App.go('press-quotes/' + r.id), totals: true, empty: 'No quotations in this period' });
+    $$('#qst button', v).forEach(x => x.onclick = () => { f.status = x.dataset.s; App.refresh(); });
+    $('#qgo', v).onclick = () => { Object.assign(f, { from: $('#qf', v).value, to: $('#qt', v).value }); App.refresh(); };
+    if ($('#qnew', v)) $('#qnew', v).onclick = () => App.go('press-quotes/new');
+  },
+  async form(v, id) {
+    const [ps, x] = await Promise.all([pressSet(true), id ? GET('/api/press/quotes/' + id) : null]);
+    let cust = x ? { id: x.customer_id, name: x.customer } : null;
+    const items = x ? x.items.map(i => ({ ...i })) : [{ product: '', template: defaultTpl(ps), qty: '', unit: 'pcs', unit_price: '', est_cost: {} }];
+    v.innerHTML = `<div class="head"><button class="btn ghost" onclick="history.back()">← Back</button><div class="sub">${x ? 'Editing ' + esc(x.quote_no) : 'New price offer for a customer'}</div></div>
+      ${x ? '' : helpTip('quote-form', '<b>কোটেশন:</b> কাস্টমারকে দামের প্রস্তাব। কাস্টমার রাজি হলে কোটেশন খুলে <b>Convert to order</b> চাপলেই অর্ডার তৈরি হবে — আবার কিছু লিখতে হবে না।')}
+      <div class="panel"><div id="qh"><div class="form f4"><div class="field span2">Customer <span class="req">*</span><div id="qcp"></div></div>${field('Date', dateInput('date', x?.date))}${field('Valid until', `<input type="date" name="valid_until" value="${x?.valid_until || addDays(App.today, +(ps.quote_valid_days || 15))}">`)}
+        ${field('Subject', `<input name="subject" value="${esc(x?.subject || '')}" placeholder="e.g. Annual diary 2027 printing">`, 'span2')}${field('Discount (৳)', `<input type="number" min="0" step="any" name="discount" value="${x ? +x.discount : 0}">`)}<div></div>
+        </div><details class="fold" ${x?.notes ? 'open' : ''}><summary>Notes & terms (printed on the quotation) — optional</summary><div class="form f4 mt">${field('Notes', `<textarea name="notes" rows="2">${esc(x?.notes || '')}</textarea>`, 'span2')}${field('Terms', `<textarea name="terms" rows="2">${esc(x ? x.terms || '' : ps.quote_terms || '')}</textarea>`, 'span2')}</div></details></div>
+      <div class="panel"><div class="head"><h2>Products</h2><button class="btn sm ghost" id="qadd">${ICON.plus} Add product</button></div><div id="qitems"></div>
+        <div class="row mt" style="justify-content:flex-end"><div style="min-width:260px;border:1px solid var(--line);border-radius:12px;padding:10px 14px" id="qsum"></div></div>
+        <div class="actions"><button class="btn" id="qsave">${ICON.check} ${x ? 'Save changes' : 'Save quotation'}</button></div></div>`;
+    custPicker($('#qcp', v), { value: cust, onPick: c => (cust = c) });
+    const sum = () => { const s = items.reduce((a, i) => a + (+i.qty || 0) * (+i.unit_price || 0), 0), d = +$('[name=discount]', v).value || 0; $('#qsum', v).innerHTML = `<div class="row" style="justify-content:space-between"><span>Subtotal</span><b>${tk(s)}</b></div>${d ? `<div class="row" style="justify-content:space-between"><span>Discount</span><span>− ${tk(d)}</span></div>` : ''}<div class="row" style="justify-content:space-between;font-size:20px;font-weight:800"><span>Total</span><span>${tk(s - d)}</span></div>`; };
+    const draw = () => {
+      $('#qitems', v).innerHTML = items.map((it, i) => `<div class="kpi" style="margin-bottom:10px" data-i="${i}"><div class="row" style="justify-content:space-between"><b>${i + 1}. ${esc(it.product || 'New product')}</b><span class="row" style="gap:8px"><b data-lt>${tk((+it.qty || 0) * (+it.unit_price || 0))}</b>${items.length > 1 ? `<button type="button" class="btn xs ghost" data-rm="${i}" style="color:var(--danger)">✕</button>` : ''}</span></div>
+        <div class="form f4 mt">${field('Product <span class="req">*</span>', `<input data-k="product" value="${esc(it.product || '')}" placeholder="Leaflet, Diary, Box…">`)}${field('Product type', `<select data-k="template">${ps.templates.map(t => opt(t.name, t.name, it.template)).join('')}</select>`)}
+          ${field('Quantity <span class="req">*</span>', `<input type="number" min="0" step="any" data-k="qty" value="${esc(it.qty ?? '')}">`)}${field('Unit price (৳)', `<input type="number" min="0" step="any" data-k="unit_price" value="${esc(it.unit_price ?? '')}">`)}
+          ${field('Size', `<input data-k="size" value="${esc(it.size || '')}">`)}${field('Paper / board', `<input data-k="paper" value="${esc(it.paper || '')}">`)}${field('GSM', `<input data-k="gsm" value="${esc(it.gsm || '')}">`)}${field('Colour', `<input data-k="colour" value="${esc(it.colour || '')}" placeholder="4 colour">`)}
+          </div><details class="fold"><summary>More details (side, unit, finishing, description) — optional</summary><div class="form f4 mt">
+          ${field('Side', `<select data-k="sides">${['', 'One side', 'Two side'].map(s => opt(s, s || '—', it.sides)).join('')}</select>`)}${field('Unit', `<input data-k="unit" value="${esc(it.unit || 'pcs')}">`)}${field('Finishing', `<input data-k="finishing" value="${esc(it.finishing || '')}">`, 'span2')}
+          ${field('Description', `<input data-k="description" value="${esc(it.description || '')}">`, 'span4')}</div></details>
+        ${can('press.costing') ? `<details class="fold"><summary>Estimated cost (internal — not printed) — optional</summary><div class="form f4 mt">${Object.entries(ps.cost_cats).map(([k, l]) => field(l, `<input type="number" min="0" step="any" data-c="${k}" value="${(it.est_cost || {})[k] || ''}">`)).join('')}</div></details>` : ''}</div>`).join('');
+      sum();
+    };
+    $('#qitems', v).addEventListener('input', e => {
+      const box = e.target.closest('[data-i]'); if (!box) return; const it = items[+box.dataset.i];
+      if (e.target.dataset.k) { it[e.target.dataset.k] = e.target.value; if (/qty|unit_price/.test(e.target.dataset.k)) { $('[data-lt]', box).textContent = tk((+it.qty || 0) * (+it.unit_price || 0)); sum(); } }
+      if (e.target.dataset.k === 'template') it._tplPicked = true;
+      if (e.target.dataset.k === 'product' && !it._tplPicked) { const g = guessTemplate(it.product, ps.templates); if (g) { it.template = g; const sel = $('[data-k=template]', box); if (sel) sel.value = g; } }
+      if (e.target.dataset.c) it.est_cost = { ...(it.est_cost || {}), [e.target.dataset.c]: e.target.value };
+    });
+    $('[name=discount]', v).oninput = sum;
+    $('#qitems', v).addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) { items.splice(+b.dataset.rm, 1); draw(); } });
+    $('#qadd', v).onclick = () => { items.push({ product: '', template: defaultTpl(ps), qty: '', unit: 'pcs', unit_price: '', est_cost: {} }); draw(); };
+    const key = uid();
+    $('#qsave', v).onclick = () => busy($('#qsave', v), async () => {
+      if (!cust) { toast('Select a customer', '', 'warn'); return; }
+      if (items.some(i => !String(i.product || '').trim() || !(+i.qty > 0))) { toast('Every product needs a name and quantity', '', 'warn'); return; }
+      const body = { ...formData($('#qh', v)), customer_id: cust.id, items };
+      const r = x ? await PUT('/api/press/quotes/' + x.id, body) : await POST('/api/press/quotes', body, { idemKey: key });
+      toast('Quotation saved', r.quote_no); App.go('press-quotes/' + r.id);
+    });
+    draw();
+  },
+  async detail(v, id) {
+    const x = await GET('/api/press/quotes/' + id), st = qStatus(x), editable = ['Draft', 'Sent', 'Rejected'].includes(x.status) && can('press.orders');
+    $('#title').textContent = x.quote_no;
+    v.innerHTML = `<div class="head"><button class="btn ghost" onclick="App.go('press-quotes')">← Quotations</button><div class="row">
+        <span class="tag ${QSTAT[st]}" style="font-size:13px">${st}</span>
+        ${editable ? `<button class="btn ghost" id="qed">Edit</button>` : ''}
+        ${can('press.orders') && x.status === 'Draft' ? `<button class="btn ghost" data-st="Sent">Mark sent</button>` : ''}
+        ${can('press.orders') && ['Draft', 'Sent'].includes(x.status) ? `<button class="btn ghost" data-st="Accepted">Customer accepted</button><button class="btn ghost" data-st="Rejected" style="color:var(--danger)">Rejected</button>` : ''}
+        ${can('press.orders') && x.status === 'Rejected' ? `<button class="btn ghost" data-st="Draft">Re-open</button>` : ''}
+        ${can('press.orders') && !['Converted', 'Rejected'].includes(x.status) ? `<button class="btn green" id="qconv">${ICON.check} Convert to order</button>` : ''}
+        ${x.order_id ? `<a class="btn ghost" href="#/press-orders/${x.order_id}">Open order ${esc(x.order_no)}</a>` : ''}
+        ${x.status === 'Draft' && can('press.orders') ? `<button class="btn ghost" id="qdel" style="color:var(--danger)">${ICON.trash}</button>` : ''}
+        <button class="btn" id="qpr">${ICON.print} Print / PDF</button></div></div>
+      ${x.expired ? `<div class="note">This quotation is past its validity date. You can still edit the date or convert it if the customer agrees.</div>` : ''}${x.status_note ? `<div class="note"><b>${esc(x.status)}:</b> ${esc(x.status_note)}</div>` : ''}
+      <div style="overflow:auto;padding:4px;max-width:900px">${quoteDoc(x)}</div>`;
+    $('#qpr', v).onclick = () => printHTML(quoteDoc(x), { size: 'A4' });
+    if ($('#qed', v)) $('#qed', v).onclick = () => App.go(`press-quotes/${id}/edit`);
+    if ($('#qdel', v)) $('#qdel', v).onclick = async () => { if (await confirmBox('Delete draft ' + x.quote_no + '?', '', { ok: 'Delete', danger: true })) { try { await api('DELETE', '/api/press/quotes/' + id, null, { idem: false }); toast('Deleted'); App.go('press-quotes'); } catch (e) { fail(e); } } };
+    $$('[data-st]', v).forEach(b => b.onclick = async () => {
+      const st2 = b.dataset.st; let reason = '';
+      if (st2 === 'Rejected') { reason = await confirmBox('Customer rejected?', 'Why? (price high, went elsewhere…)', { ok: 'Mark rejected', danger: true, input: 'Reason' }); if (!reason) return; }
+      try { await POST(`/api/press/quotes/${id}/status`, { status: st2, reason }); toast('Updated'); App.refresh(); } catch (e) { fail(e); }
+    });
+    if ($('#qconv', v)) $('#qconv', v).onclick = async () => {
+      const ps = await pressSet();
+      const m = modal({ title: 'Convert ' + x.quote_no + ' to an order', body: `<div class="form f2" id="cvf">${field('Order date', dateInput())}${field('Delivery deadline', `<input type="date" name="deadline">`)}
+          ${field('Order type', `<select name="order_type">${ps.order_types.map(t => opt(t, t)).join('')}</select>`)}${field('Special instructions', `<input name="instructions" value="${esc(x.subject || '')}">`)}
+          ${field('Advance received (৳)', `<input type="number" min="0" step="any" name="adv" value="0">`)}${field('Advance method', `<select name="adv_method">${App.meta.payment_methods.map(p => opt(p, p)).join('')}</select>`)}</div>
+        ${+x.discount ? `<div class="note">Quotation discount ${tk(x.discount)} is noted on the order — give it on the final invoice.</div>` : ''}
+        <div class="note">Stock does not change. After converting, open the order to add machine, plate and finishing instructions for the Order Sheet.</div>
+        <div class="actions"><button class="btn ghost" data-x>Cancel</button><button class="btn green" id="cvgo">Create order</button></div>` });
+      $('[data-x]', m.el).onclick = m.close; const key = uid();
+      $('#cvgo', m.el).onclick = () => busy($('#cvgo', m.el), async () => {
+        const f = formData($('#cvf', m.el)), body = { ...f };
+        if (+f.adv > 0) body.advance = { amount: f.adv, method: f.adv_method };
+        const r = await POST(`/api/press/quotes/${id}/convert`, body, { idemKey: key });
+        m.close(); toast('Order created', r.order_no); App.go('press-orders/' + r.order_id);
+      });
+    };
   },
 };

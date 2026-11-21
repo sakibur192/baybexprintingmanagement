@@ -9,14 +9,14 @@ App.pages.dashboard = {
     const hour = new Date().getHours();
     const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
     const qa = [
-      ['press-orders/new', 'New Press Order', 'Customer order · products · order sheet', 'c1', 'invoice', 'press.orders'],
-      ['press-store/issues', 'Material Issue', 'Paper / ink / plate from store to a job', 'c2', 'box', 'press.store'],
-      ['press-orders/counter', 'Counter Job', 'ID card · lamination · binding — bill now', 'c4', 'money', 'press.invoice'],
-      ['pvc-print', 'PVC Print Entry', 'Bill in sq ft · deduct stock in linear ft', 'c3', 'print', 'pvc.print'],
-      ['ctp-invoices/new', 'CTP Sales', 'Plate invoice · stock deducts on confirm', 'c1', 'plate', 'ctp.invoice'],
+      ['press-orders/new', 'New Press Order', 'নতুন অর্ডার নিন · অর্ডার শিট প্রিন্ট', 'c1', 'invoice', 'press.orders'],
+      ['press-store/issues', 'Material Issue', 'স্টোর থেকে কাগজ / কালি / প্লেট দিন', 'c2', 'box', 'press.store'],
+      ['press-orders/counter', 'Counter Job', 'সাথে সাথে কাজ — ID কার্ড, লেমিনেশন, বাইন্ডিং', 'c4', 'money', 'press.invoice'],
+      ['pvc-print', 'PVC Print Entry', 'PVC প্রিন্টের বিল · স্টক নিজে কমে', 'c3', 'print', 'pvc.print'],
+      ['ctp-invoices/new', 'CTP Sales', 'প্লেট বিক্রির ইনভয়েস', 'c1', 'plate', 'ctp.invoice'],
     ];
     const months = d.monthly.map(m => ({ ...m, label: new Date(m.month + '-01').toLocaleString('en', { month: 'short' }) }));
-    const lowCount = d.low.ctp.length + d.low.pvc.length + (d.low.store || []).length, P = d.press || {};
+    const lowCount = d.low.ctp.length + d.low.pvc.length + (d.low.store || []).length + (d.low.internal || []).length, P = d.press || {};
     const maxPlate = Math.max(1, ...d.ctp.map(p => p.balance));
     const mediaShown = d.pvc.filter(m => m.balance !== 0 || m.printed || m.wastage);
     const inkColor = { Cyan: '#00aeef', Magenta: '#ec008c', Yellow: '#f5d800', Black: '#231f20' };
@@ -41,7 +41,7 @@ App.pages.dashboard = {
         ${P.void_requests ? `<div class="note danger mt"><a href="#/press-invoices/void_requested">${P.void_requests} invoice void request(s) waiting for approval</a></div>` : ''}
         <div class="grid g2 mt"><div><h2 style="font-size:13px">Overdue orders</h2><div class="feed mt">${(P.overdue_list || []).map(o => `<div class="feed-item" data-h="press-orders/${o.id}"><div class="feed-ic" style="background:var(--danger)">!</div><div class="t"><b>${esc(o.order_no)} · ${esc(o.customer)}</b><small>${esc(o.products || '')} · due ${fdate(o.deadline)}</small></div></div>`).join('') || '<div class="sub">None 🎉</div>'}</div></div>
           <div><h2 style="font-size:13px">Due in the next 2 days</h2><div class="feed mt">${(P.due_soon || []).map(o => `<div class="feed-item" data-h="press-orders/${o.id}"><div class="feed-ic" style="background:var(--warn)">⏱</div><div class="t"><b>${esc(o.order_no)} · ${esc(o.customer)}</b><small>${esc(o.products || '')} · ${fdate(o.deadline)}</small></div></div>`).join('') || '<div class="sub">Nothing due</div>'}</div></div></div></div>` : ''}
-      ${lowCount ? `<div class="ribbon" style="background:linear-gradient(90deg,#fdf0e1,transparent)"><span class="dot pulse" style="color:var(--warn)"></span><b>Stock alerts:</b> ${[...(d.low.store || []).map(i => `<a href="#/press-store">${esc(i.name)} (${n0(i.balance)} ${esc(i.unit)})</a>`), ...d.low.pvc.map(m => `${esc(mediaName(m))} (${n0(m.balance)} ft)`), ...d.low.ctp.map(p => `${esc(p.name)} (${p.balance} pcs)`)].join(' · ')}</div>` : ''}
+      ${lowCount ? `<div class="ribbon" style="background:linear-gradient(90deg,#fdf0e1,transparent)"><span class="dot pulse" style="color:var(--warn)"></span><b>Stock alerts:</b> ${[...(d.low.store || []).map(i => `<a href="#/press-store">${esc(i.name)} (${n0(i.balance)} ${esc(i.unit)})</a>`), ...d.low.pvc.map(m => `${esc(mediaName(m))} (${n0(m.balance)} ft)`), ...d.low.ctp.map(p => `${esc(p.name)} (${p.balance} pcs)`), ...(d.low.internal || []).map(i => `<a href="#/internal">${esc(i.name)} (${n0(i.balance)} ${esc(i.unit)})</a>`)].join(' · ')}</div>` : ''}
       <div class="grid g32 mb">
         <div class="panel"><div class="head"><div><h2>Monthly Sales & Collection</h2><div class="sub">Last 12 months · Press + PVC + CTP stacked, collection line</div></div>
           <div class="legend"><span><i style="background:#7b5cd6"></i>Press</span><span><i style="background:var(--pvc)"></i>PVC</span><span><i style="background:var(--ctp)"></i>CTP</span><span><i style="background:#e08a2e;height:3px"></i>Collection</span></div></div><div id="mchart"></div></div>

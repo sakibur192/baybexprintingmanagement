@@ -1,11 +1,16 @@
 /* SKS Printers — Unified Business Manager */
+/* bundled Bangla font (only used for Bangla letters) so যুক্তাক্ষর render correctly on every PC and in print */
+@font-face{font-family:BN;src:url(/fonts/bn-400.woff2) format('woff2');font-weight:400;font-display:swap;unicode-range:U+0980-09FF,U+200C-200D,U+25CC}
+@font-face{font-family:BN;src:url(/fonts/bn-600.woff2) format('woff2');font-weight:600;font-display:swap;unicode-range:U+0980-09FF,U+200C-200D,U+25CC}
+@font-face{font-family:BN;src:url(/fonts/bn-700.woff2) format('woff2');font-weight:700;font-display:swap;unicode-range:U+0980-09FF,U+200C-200D,U+25CC}
+@font-face{font-family:BN;src:url(/fonts/bn-800.woff2) format('woff2');font-weight:800;font-display:swap;unicode-range:U+0980-09FF,U+200C-200D,U+25CC}
 :root{
   --navy:#132438;--navy2:#1b3350;--navy3:#24466b;--blue:#2a7fd0;--blue2:#1f68ad;--blue-soft:#e8f2fc;
   --ctp:#2a7fd0;--pvc:#13a389;--own:#8b5cf6;--warn:#e08a2e;--danger:#d9475a;--ok:#1d9b6c;
   --ink:#16222f;--ink2:#3a4a5c;--muted:#7b8a9b;--line:#e4ebf2;--line2:#eef3f8;--bg:#f2f5f9;--card:#fff;--card2:#f8fafd;
   --shadow:0 1px 2px rgba(16,34,56,.05),0 6px 22px -8px rgba(16,34,56,.12);--shadow-lg:0 24px 60px -18px rgba(10,24,44,.35);
   --r:14px;--r-sm:9px;--ease:cubic-bezier(.22,.9,.28,1);--spring:cubic-bezier(.34,1.56,.64,1);
-  --font:"Segoe UI",system-ui,-apple-system,"Noto Sans Bengali","Hind Siliguri",Roboto,Arial,sans-serif;
+  --font:BN,"Segoe UI",system-ui,-apple-system,"Noto Sans Bengali","Hind Siliguri",Roboto,Arial,sans-serif;
 }
 [data-theme=dark]{
   --ink:#e6edf5;--ink2:#b9c6d4;--muted:#8796a8;--line:#253447;--line2:#1d2a3a;--bg:#0d1621;--card:#132030;--card2:#172638;--blue-soft:#17304b;
@@ -389,3 +394,44 @@ tr.rowin{animation:rowIn .4s var(--ease) both}
 
 .strike{text-decoration:line-through;color:var(--muted);font-weight:600}
 .chip.check{cursor:pointer}
+
+/* ---- guided order progress (easy mode) ---- */
+.flow{display:flex;gap:0;margin:4px 0 12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 10px;overflow:auto}
+.fstep{flex:1;min-width:92px;display:flex;flex-direction:column;align-items:center;gap:3px;position:relative;text-align:center;color:var(--muted)}
+.fstep:not(:last-child)::after{content:"";position:absolute;top:16px;left:calc(50% + 20px);right:calc(-50% + 20px);height:3px;border-radius:3px;background:var(--line)}
+.fstep.done:not(:last-child)::after{background:var(--ok)}
+.fdot{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:14px;background:var(--line2);color:var(--muted);border:2px solid var(--line)}
+.fstep b{font-size:12.5px;color:var(--ink2)}.fstep small{font-size:11px}
+.fstep.done .fdot{background:var(--ok);border-color:var(--ok);color:#fff}
+.fstep.part .fdot{background:#fdf0e1;border-color:var(--warn);color:var(--warn)}
+.fstep.skip .fdot{background:var(--card2);border-style:dashed}
+.fstep.cur .fdot{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 0 0 6px var(--blue-soft);animation:fpulse 1.8s infinite}
+.fstep.cur b{color:var(--blue)}
+@keyframes fpulse{50%{box-shadow:0 0 0 10px transparent}}
+.cta{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;background:var(--blue-soft);border:1px solid #cfe3f7;border-radius:16px;padding:14px 18px;margin-bottom:14px}
+.cta.ok{background:#e6f6ef;border-color:#bfe6d3}
+.cta-t{font-size:14.5px;line-height:1.55;color:var(--ink);flex:1;min-width:260px}
+.btn.big{font-size:15px;padding:12px 22px;border-radius:12px}
+.tabrow{align-items:flex-end;gap:8px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.tabrow .tabs{border-bottom:0}
+.more-menu{position:relative;margin-bottom:6px}.more-menu summary{list-style:none;cursor:pointer}.more-menu summary::-webkit-details-marker{display:none}
+.more-menu summary.on{color:var(--blue);border-color:var(--blue)}
+.more-list{position:absolute;right:0;top:calc(100% + 6px);background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(20,40,70,.14);padding:6px;z-index:30;min-width:200px;display:flex;flex-direction:column}
+.more-list button{border:0;background:none;text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-weight:600;color:var(--ink2)}
+.more-list button:hover{background:var(--blue-soft);color:var(--blue)}
+/* Bangla tip bar */
+.helptip{display:flex;gap:10px;align-items:flex-start;background:#fff8e8;border:1px solid #f3dfae;color:#5b4a1d;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13.5px;line-height:1.6}
+.helptip b{color:#3d3112}.helptip .x{margin-left:auto;border:0;background:none;cursor:pointer;color:#9c8448;font-size:18px;line-height:1}
+.fold{border:1px dashed var(--line);border-radius:12px;padding:8px 12px;margin-top:10px}
+.fold>summary{cursor:pointer;font-weight:700;font-size:13px;color:var(--blue)}
+[data-theme=dark] .helptip{background:#2b2714;border-color:#4a4220;color:#e6d9a8}[data-theme=dark] .helptip b{color:#f4e7b6}
+[data-theme=dark] .cta{background:#14263b;border-color:#24466b}[data-theme=dark] .cta.ok{background:#10291f;border-color:#1d4a37}
+[data-theme=dark] .fstep.part .fdot{background:#3a2a14}
+.navgrp .chev{margin-left:auto;font-size:11px;transition:transform .2s;opacity:.7}.navgrp.open .chev{transform:rotate(90deg)}
+.navsub{margin-left:14px;border-left:1px solid #ffffff1a;padding-left:6px}.navsub .nav{font-size:12.5px;padding:7px 10px}
+.bigacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px}
+.bigact{border:0;border-radius:14px;padding:14px 18px;text-align:left;cursor:pointer;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;display:flex;flex-direction:column;gap:4px;box-shadow:0 8px 20px -10px var(--blue);transition:transform .15s}
+.bigact:hover{transform:translateY(-2px)}.bigact b{display:flex;align-items:center;gap:8px;font-size:15px}.bigact b svg{width:18px;height:18px}.bigact small{opacity:.85;font-size:12px}
+.bigact.green{background:linear-gradient(135deg,#1d9b6c,#168257);box-shadow:0 8px 20px -10px #1d9b6c}
+.bigact.light{background:var(--card);color:var(--ink);border:1px solid var(--line);box-shadow:none}.bigact.light small{color:var(--muted);opacity:1}
+.fstep.opt .fdot{border-style:dashed}

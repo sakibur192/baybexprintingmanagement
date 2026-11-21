@@ -188,6 +188,35 @@ const d = n => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).form
   const after = (await call(A, 'GET', `/api/customers/${cust2.id}`)).data;
   ok('Balance unchanged by cancel+refund, no advance left', +after.customer.balance === before && after.credit === 0, `${before} → ${after.customer.balance}, credit ${after.credit}`);
 
+  console.log('\nQuotations → order');
+  const qt = (await call(A, 'POST', '/api/press/quotes', { customer_id: cust.id, date: d(-2), subject: 'Diary 2027', discount: 500, items: [{ product: 'Diary', qty: 200, unit_price: 250, size: 'A5', paper: 'Offset', gsm: '80' }, { product: 'Calendar', qty: 300, unit_price: 120 }] })).data;
+  ok('Quotation saved with number, totals and validity', /^QT-/.test(qt.quote_no) && +qt.subtotal === 86000 && +qt.total === 85500 && qt.valid_until > qt.date && qt.status === 'Draft', JSON.stringify(qt).slice(0, 200));
+  const stockBefore = JSON.stringify((await call(A, 'GET', '/api/store/items')).data.map(i => i.balance));
+  await ex('Quote edited (revision +1)', call(A, 'PUT', '/api/press/quotes/' + qt.id, { customer_id: cust.id, discount: 500, items: [{ product: 'Diary', qty: 250, unit_price: 250 }, { product: 'Calendar', qty: 300, unit_price: 120 }] }), 200);
+  ok('Revision counted', (await call(A, 'GET', '/api/press/quotes/' + qt.id)).data.revision === 1);
+  await ex('Mark sent', call(A, 'POST', `/api/press/quotes/${qt.id}/status`, { status: 'Sent' }), 200);
+  await ex('Reject needs a reason', call(A, 'POST', `/api/press/quotes/${qt.id}/status`, { status: 'Rejected' }), 400);
+  const cv = await ex('Convert to order', call(A, 'POST', `/api/press/quotes/${qt.id}/convert`, { deadline: d(10), advance: { amount: 10000, method: 'Cash' } }), 200);
+  const co = (await call(A, 'GET', '/api/press/orders/' + cv.data.order_id)).data;
+  ok('Order has the quoted products and prices', co.items.length === 2 && +co.total === 98500 && co.items[0].qty == 250, JSON.stringify({ t: co.total, n: co.items.length }));
+  ok('Advance at conversion recorded on the order', co.payments.some(p => +p.amount === 10000));
+  ok('Quote marked Converted and linked', (await call(A, 'GET', '/api/press/quotes/' + qt.id)).data.order_no === co.order_no);
+  await ex('Cannot convert twice', call(A, 'POST', `/api/press/quotes/${qt.id}/convert`, {}), 400);
+  await ex('Converted quote cannot be edited', call(A, 'PUT', '/api/press/quotes/' + qt.id, { customer_id: cust.id, items: [{ product: 'X', qty: 1, unit_price: 1 }] }), 400);
+  ok('Quotation did not touch stock', JSON.stringify((await call(A, 'GET', '/api/store/items')).data.map(i => i.balance)) === stockBefore);
+  const qt2 = (await call(A, 'POST', '/api/press/quotes', { customer_id: cust2.id, valid_until: d(-1), date: d(-5), items: [{ product: 'Poster', qty: 100, unit_price: 20 }] })).data;
+  ok('Past validity shows as Expired', (await call(A, 'GET', `/api/press/quotes?status=Expired&from=${d(-30)}&to=${d(0)}`)).data.some(x => x.id === qt2.id));
+  await ex('Draft quote can be deleted', call(A, 'DELETE', '/api/press/quotes/' + qt2.id), 200);
+
+  console.log('\nOptional VAT & overhead (Press Settings)');
+  await ex('Set VAT 5% and overhead 10%', call(A, 'PUT', '/api/press/settings', { vat_pct: 5, overhead_pct: 10 }), 200);
+  const vo = (await call(A, 'POST', '/api/press/quick', { customer_id: cust2.id, items: [{ product: 'Lamination', qty: 10, unit_price: 100 }], paid_amount: 0 })).data;
+  const vinv = (await call(A, 'GET', '/api/press/invoices/' + vo.invoice_id)).data;
+  ok('VAT 5% added to final invoice (1000 + 50)', +vinv.vat_amount === 50 && +vinv.grand_total === 1050, JSON.stringify({ v: vinv.vat_amount, g: vinv.grand_total, id: vo.invoice_id }));
+  const vcost = (await call(A, 'GET', '/api/press/orders/' + vo.order_id)).data.costing;
+  ok('Job costing: selling excludes VAT, overhead % added', vcost.selling === 1000 && vcost.overhead_pct === 10, JSON.stringify(vcost).slice(0, 200));
+  await call(A, 'PUT', '/api/press/settings', { vat_pct: 0, overhead_pct: 0 });
+
   console.log('\nDashboard & reports');
   const dash = (await call(A, 'GET', '/api/dashboard')).data;
   ok('Dashboard has press block + total sales incl. press', dash.press && typeof dash.press.running === 'number' && dash.sales.total >= dash.sales.press && dash.sales.press > 0, JSON.stringify(dash.sales));

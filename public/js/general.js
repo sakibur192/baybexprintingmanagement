@@ -65,3 +65,84 @@ App.pages['gen-invoices'] = {
     };
   },
 };
+
+/* ---------------- Internal Inventory (own-use items: PVC solvent, CTP wash / developer, filter paper, anything the business adds) ---------------- */
+const IUNITS = () => (App.meta.settings.lists?.internal_units?.length ? App.meta.settings.lists.internal_units : ['Ltr', 'Pcs', 'Kg', 'Box', 'Roll', 'Packet', 'Bottle', 'Set']);
+function internalItemModal(it, done) {
+  const m = modal({ title: it ? 'Edit ' + it.name : 'Add internal item', icon: ICON.box, body: `<div class="form" id="iif">
+    ${field('Item name <span class="req">*</span>', `<input name="name" value="${esc(it?.name || '')}" placeholder="e.g. PVC Solvent, CTP Wash, Filter Paper, A4 Paper">`, 'span2')}
+    ${field('Unit', `<input name="unit" list="iunits" value="${esc(it?.unit || 'Ltr')}"><datalist id="iunits">${IUNITS().map(u => `<option value="${esc(u)}">`).join('')}</datalist>`, '', it ? 'cannot change after stock entries' : '')}
+    ${field('Low-stock alert at', `<input name="low_stock" type="number" step="any" min="0" value="${it ? +it.low_stock : ''}">`)}
+    ${it ? '' : field('Opening stock', `<input name="opening" type="number" step="any" min="0" placeholder="0">`)}
+    ${field('Remarks', `<input name="remarks" value="${esc(it?.remarks || '')}">`, it ? 'span2' : '')}</div>
+    <div class="row mt right"><button class="btn ghost" data-x>Cancel</button><button class="btn" id="iis">Save</button></div>`, size: 'narrow' });
+  $('[data-x]', m.el).onclick = m.close;
+  $('#iis', m.el).onclick = () => busy($('#iis', m.el), async () => {
+    const d = formData($('#iif', m.el)); if (!requireFields($('#iif', m.el), ['name'])) return;
+    try { it ? await PUT('/api/gen/internal/items/' + it.id, d) : await POST('/api/gen/internal/items', d); toast('Saved'); m.close(); done && done(); } catch (er) { fail(er); }
+  });
+}
+function internalMoveModal(items, it, type, done) {
+  const T = { stock_in: 'Stock in (bought / received)', use: 'Own use (stock out)', wastage: 'Wastage / spilled', adj_in: 'Adjust + (count found more)', adj_out: 'Adjust − (count found less)' };
+  const m = modal({ title: T[type], icon: ICON.box, body: `<div class="form" id="imf">
+    ${field('Item <span class="req">*</span>', `<select name="item_id">${items.map(i => opt(i.id, `${i.name} — ${qf(i.balance)} ${i.unit} in stock`, it?.id)).join('')}</select>`, 'span2')}
+    ${field('Date', dateInput())}${field('Quantity <span class="req">*</span>', `<input name="qty" type="number" step="any" min="0">`)}
+    ${type === 'stock_in' ? field('Supplier / from', `<input name="party">`) : ''}
+    ${type === 'use' ? field('Used for <span class="req">*</span>', `<input name="purpose" list="iup" placeholder="e.g. PVC machine cleaning, CTP processor"><datalist id="iup">${['PVC machine cleaning', 'CTP processor', 'Plate washing', 'Office use'].map(p => `<option value="${esc(p)}">`).join('')}</datalist>`) : ''}
+    ${['wastage', 'adj_in', 'adj_out'].includes(type) ? field('Reason <span class="req">*</span>', `<input name="reason">`) : ''}
+    ${field('Remarks', `<input name="remarks">`, 'span2')}</div>
+    <div class="note">Entering an old paper slip? Just pick its date — it goes into the correct day.</div>
+    <div class="row mt right"><button class="btn ghost" data-x>Cancel</button><button class="btn" id="ims">Save</button></div>`, size: 'narrow' });
+  $('[data-x]', m.el).onclick = m.close;
+  $('#ims', m.el).onclick = () => busy($('#ims', m.el), async () => {
+    const d = { ...formData($('#imf', m.el)), type };
+    try { const r = await POST('/api/gen/internal/moves', d); toast('Saved', `Balance now ${qf(r.balance)}`); m.close(); done && done(); } catch (er) { fail(er); }
+  });
+}
+App.pages['internal'] = {
+  title: 'Internal Inventory',
+  async render(v, tab = 'items') {
+    const items = await GET('/api/gen/internal/items');
+    const low = items.filter(i => +i.low_stock > 0 && +i.balance <= +i.low_stock);
+    v.innerHTML = `<div class="head"><div><div class="sub">Things the business uses itself — not sold. PVC solvent, CTP wash & developer, filter paper, and anything you add.</div></div>
+      <div class="row">${['stock_in', 'use', 'wastage'].map(t => `<button class="btn ${t === 'stock_in' ? 'green' : t === 'use' ? '' : 'ghost'}" data-mt="${t}">${{ stock_in: ICON.plus + ' Stock in', use: 'Use / stock out', wastage: 'Wastage' }[t]}</button>`).join('')}
+      ${can('stock.adjust') ? `<button class="btn ghost" data-mt="adj_in">Adjust +</button><button class="btn ghost" data-mt="adj_out">Adjust −</button>` : ''}<button class="btn ghost" id="iadd">${ICON.plus} Item</button></div></div>
+      ${low.length ? `<div class="note" style="border-color:var(--danger)"><b>Low stock:</b> ${low.map(i => `${esc(i.name)} (${qf(i.balance)} ${esc(i.unit)})`).join(', ')}</div>` : ''}
+      <div class="tabs"><button class="${tab === 'items' ? 'on' : ''}" onclick="App.go('internal/items')">Items & stock</button><button class="${tab === 'moves' ? 'on' : ''}" onclick="App.go('internal/moves')">Stock in / out history</button></div>
+      <div class="panel" id="ib"></div>`;
+    $$('[data-mt]', v).forEach(b => b.onclick = () => items.length ? internalMoveModal(items, null, b.dataset.mt, () => App.refresh()) : toast('Add an item first', '', 'err'));
+    $('#iadd', v).onclick = () => internalItemModal(null, () => App.refresh());
+    const body = $('#ib', v);
+    if (tab === 'moves') {
+      const mv = await GET('/api/gen/internal/moves');
+      dataTable(body, mv, [
+        { k: 'date', label: 'Date', f: r => fdate(r.date) }, { k: 'item', label: 'Item' },
+        { k: 'type', label: 'Type', f: r => `<span class="tag ${(MV[r.type] || [r.type, 'gray'])[1]}">${esc((MV[r.type] || [r.type])[0])}</span>${r.is_reversal ? ' <span class="tag red">VOID</span>' : r.voided ? ' <span class="tag gray">voided</span>' : ''}` },
+        { k: 'qty', label: 'Qty', n: true, f: r => `<b style="color:${+r.qty < 0 ? 'var(--danger)' : 'var(--ok,#16a34a)'}">${+r.qty > 0 ? '+' : ''}${qf(r.qty)}</b> ${esc(r.unit)}` },
+        { k: 'purpose', label: 'Purpose / reason / from', f: r => esc(r.purpose || r.party || r.remarks || '') },
+        { k: 'created_by_name', label: 'By' },
+        { k: 'x', label: '', sort: false, f: r => !r.voided && !r.is_reversal && can('stock.adjust') ? `<button class="btn xs ghost" data-void="${r.id}">Void</button>` : '' },
+      ]);
+      body.addEventListener('click', async e => {
+        const b = e.target.closest('[data-void]'); if (!b) return;
+        const reason = await confirmBox('Void this entry?', 'A reverse entry is added; history is kept.', { ok: 'Void', danger: true, input: 'Reason' });
+        if (reason) { try { await POST(`/api/gen/moves/${b.dataset.void}/void`, { reason }); toast('Voided'); App.refresh(); } catch (er) { fail(er); } }
+      });
+      return;
+    }
+    dataTable(body, items, [
+      { k: 'name', label: 'Item', f: r => `<b>${esc(r.name)}</b>${r.remarks ? `<div class="sub">${esc(r.remarks)}</div>` : ''}` },
+      { k: 'balance', label: 'In stock', n: true, v: r => +r.balance, f: r => `<b style="${+r.low_stock > 0 && +r.balance <= +r.low_stock ? 'color:var(--danger)' : ''}">${qf(r.balance)}</b> ${esc(r.unit)}` },
+      { k: 'low_stock', label: 'Alert at', n: true, f: r => +r.low_stock ? qf(r.low_stock) : '—' },
+      { k: 'x', label: '', sort: false, f: r => `<button class="btn xs" data-in="${r.id}">+ In</button> <button class="btn xs ghost" data-use="${r.id}">Use</button> <button class="btn xs ghost" data-ed="${r.id}">Edit</button> <button class="btn xs ghost" data-del="${r.id}" style="color:var(--danger)">${ICON.trash.replace('<svg', '<svg width="13"')}</button>` },
+    ], { empty: 'No internal items yet — add PVC solvent, CTP wash, developer, filter paper…' });
+    body.addEventListener('click', e => {
+      const b = e.target.closest('button[data-in],button[data-use],button[data-ed],button[data-del]'); if (!b) return;
+      const it = items.find(i => i.id === +(b.dataset.in || b.dataset.use || b.dataset.ed || b.dataset.del));
+      if (b.dataset.in) internalMoveModal(items, it, 'stock_in', () => App.refresh());
+      else if (b.dataset.use) internalMoveModal(items, it, 'use', () => App.refresh());
+      else if (b.dataset.ed) internalItemModal(it, () => App.refresh());
+      else masterDelete('/api/gen/internal/items/' + it.id, it.name, () => App.refresh());
+    });
+  },
+};
