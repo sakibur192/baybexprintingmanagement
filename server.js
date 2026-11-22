@@ -605,10 +605,13 @@ const auth = (req, res, next) => {
     if (!ses) return next(new AppError('Please log in', 401));
     inTenant(ses.tenant, () => {
       q1(`SELECT u.id,u.username,u.full_name,u.nickname,u.phone,u.active,r.name role_name,r.permissions perms,
-          (SELECT (value->>'backdate_days')::int FROM settings WHERE key='press') backdate_days FROM users u LEFT JOIN roles r ON r.id=u.role_id WHERE u.id=$1`, [ses.user_id])
+          (SELECT (value->>'backdate_days')::int FROM settings WHERE key='press') backdate_days, (SELECT value->'off' FROM settings WHERE key='sections') sections_off FROM users u LEFT JOIN roles r ON r.id=u.role_id WHERE u.id=$1`, [ses.user_id])
         .then(u => {
           if (!u || !u.active) return next(new AppError('Please log in', 401));
           u.perms = u.perms || [];
+          const off = Array.isArray(u.sections_off) ? u.sections_off : [];   // a switched-off section takes its permissions with it (menu, buttons and API)
+          if (off.length) u.perms = u.perms.filter(p => !off.some(k => SECTION_PERM[k] && SECTION_PERM[k](p)));
+          delete u.sections_off;
           req.user = u; req.tenant = ses.tenant; req.impersonated = ses.impersonated_by; req.sub = tenantState(ses.tenant);
           if (ses.tenant.status === 'suspended' && !ses.impersonated_by) return next(new AppError('This business account is suspended. Please contact Baybex Digital.', 403));
           next();
@@ -1240,6 +1243,7 @@ app.put('/api/ink/settings', can('ink'), wrap(async (req, res) => {
 /* ============================== PRINTING PRESS (press.js) ============================== */
 const H = { app, q, q1, tx, can, wrap, bad, str, num, r2, audit, idem, nextNo, entryDate, today, lists, getSetting, recordPayment, paidSql: PAID_SQL, express };
 installPress(H);
+require('./section-report')(H);
 function installPress(h) { PRESS(h); }
 
 /* ============================== GENERAL SECTION + INTERNAL INVENTORY ============================== */
@@ -2160,7 +2164,8 @@ app.get('/api/reports/register', can('reports'), wrap(async (req, res) => {
 
 /* ---------- Excel export (the UI sends exactly what is on screen) ---------- */
 app.post('/api/export/xlsx', wrap(async (req, res) => {
-  const { title = 'Report', meta = [], sheets = [] } = req.body;
+  const { title = 'Report', sheets = [] } = req.body;
+  const meta = Array.isArray(req.body.meta) ? req.body.meta : Object.entries(req.body.meta || {}).map(([k, v]) => `${k}: ${v}`);
   const company = (await getSetting('company')).name;
   const wb = new ExcelJS.Workbook(); wb.creator = company; wb.created = new Date();
   for (const sh of sheets.slice(0, 30)) {
@@ -2239,6 +2244,17 @@ function cleanLists(v) {
   }
   return o;
 }
+/* Business sections the tenant can switch on/off and put in any order (Settings → Sections). Shared (customers, accounts…) is always on. */
+const SECTION_KEYS = ['press', 'pvc', 'ctp', 'shared', 'internal'];
+const DEFAULT_SECTIONS = { order: ['press', 'pvc', 'ctp', 'shared', 'internal'], off: [] };
+const SECTION_PERM = { press: p => p.startsWith('press.'), pvc: p => p.startsWith('pvc.') || p === 'ink', ctp: p => p.startsWith('ctp.'), internal: p => p === 'internal' };
+function cleanSections(v) {
+  const order = [...new Set((Array.isArray(v?.order) ? v.order : []).filter(k => SECTION_KEYS.includes(k)))];
+  for (const k of DEFAULT_SECTIONS.order) if (!order.includes(k)) order.push(k);
+  const off = [...new Set((Array.isArray(v?.off) ? v.off : []).filter(k => SECTION_KEYS.includes(k) && k !== 'shared'))];
+  if (['press', 'pvc', 'ctp'].every(k => off.includes(k))) bad('Keep at least one business section (Press, PVC or CTP) switched on');
+  return { order, off };
+}
 async function getSetting(k) { const r = await q1(`SELECT value FROM settings WHERE key=$1`, [k]); return r ? r.value : ({ ...DEFAULT_SETTINGS, lists: DEFAULT_LISTS }[k] || {}); }
 app.get('/api/settings', can('settings'), wrap(async (req, res) => {
   const [s, seq] = await Promise.all([q(`SELECT key, value FROM settings`), q(`SELECT * FROM invoice_sequences ORDER BY key`)]);
@@ -2246,6 +2262,8 @@ app.get('/api/settings', can('settings'), wrap(async (req, res) => {
 }));
 app.put('/api/settings', can('settings'), wrap(async (req, res) => {
   await tx(async c => {
+    if (req.body.settings?.sections) await c.query(`INSERT INTO settings(key,value) VALUES('sections',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(cleanSections(req.body.settings.sections))]);
+    if (req.body.settings?.company?.logo_size !== undefined) { const ls = +req.body.settings.company.logo_size; if (!(ls >= 30 && ls <= 220)) bad('Logo size must be between 30 and 220'); req.body.settings.company.logo_size = Math.round(ls); }
     for (const k of ['company', 'pvc', 'ctp', 'lists']) if (req.body.settings?.[k])
       await c.query(`INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [k, JSON.stringify(k === 'lists' ? cleanLists({ ...(await lists()), ...req.body.settings.lists }) : { ...(await getSetting(k)), ...req.body.settings[k] })]);
     for (const s of req.body.sequences || []) {

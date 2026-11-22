@@ -4,13 +4,14 @@ App.pages.reports = {
   title: 'Detailed Sales & Audit Reports',
   st: null,
   state() {
-    if (!this.st) { const [f, t] = periodRange('month'); this.st = { period: 'month', from: f, to: t, division: 'all', customer: null, product: '', media: '', width: '', view: (can('press.view', 'press.orders') ? 'press' : 'summary'), register: 'sales', user: '' }; }
+    if (!this.st) { const [f, t] = periodRange('month'); this.st = { period: 'month', from: f, to: t, division: 'all', customer: null, product: '', media: '', width: '', view: (secOn('press') && can('press.view', 'press.orders') ? 'press' : 'summary'), register: 'sales', user: '' }; }
     return this.st;
   },
   async render(v) {
     const s = this.state();
     const cats = [...new Set(App.meta.media.map(m => m.category))];
-    v.innerHTML = `<div class="panel"><div class="head"><div><h2>Report filters</h2><div class="sub">Only confirmed transactions count as sales · drafts and cancelled invoices are excluded · plates and sq ft are never added together</div></div><span class="tag">Audit ready</span></div>
+    const quick = srepAllowed();
+    v.innerHTML = `${quick.length ? `<div class="panel" style="padding:12px 16px"><div class="row" style="flex-wrap:wrap;gap:8px;align-items:center"><b>${ICON.print} Quick daily report (print / Excel / CSV):</b>${quick.map(x => `<button class="btn sm ghost" onclick="App.pages['section-report'].st=null;App.go('section-report/${x.key}')">${esc(x.label)} — today</button>`).join('')}</div></div>` : ''}<div class="panel"><div class="head"><div><h2>Report filters</h2><div class="sub">Only confirmed transactions count as sales · drafts and cancelled invoices are excluded · plates and sq ft are never added together</div></div><span class="tag">Audit ready</span></div>
       <div class="row mb">${periodChips(s.period)}<span class="muted small">or</span>
         <input type="month" class="inp" id="rm" style="width:160px" title="Pick a month"><select class="inp" id="ry" style="width:110px"><option value="">Year…</option>${Array.from({ length: 6 }, (_, i) => +App.today.slice(0, 4) - i).map(y => opt(y, y)).join('')}</select></div>
       <div class="form f4" id="rf">
@@ -21,7 +22,7 @@ App.pages.reports = {
         ${field('PVC media', `<select name="media"><option value="">All media</option>${cats.map(c => opt(c, c, s.media)).join('')}</select>`)}
         ${field('Roll width', `<select name="width"><option value="">All widths</option>${[3, 4, 5, 6, 8, 10].map(w => opt(w, w + ' ft', s.width)).join('')}</select>`)}
         <div class="field" style="align-self:end"><button class="btn" id="rgo">${ICON.chart} Run report</button></div></div></div>
-      <div class="tabs">${[...(can('press.view', 'press.orders', 'reports') ? [['press', 'Printing Press']] : []), ['summary', 'PVC & CTP Summary'], ['registers', 'Registers & Audit'], ...(can('reports.employee') ? [['employee', 'Employee Reports']] : [])].map(([k, l]) => `<button data-t="${k}" class="${k === s.view ? 'on' : ''}">${l}</button>`).join('')}
+      <div class="tabs">${[...(secOn('press') && can('press.view', 'press.orders', 'reports') ? [['press', 'Printing Press']] : []), ...(secOn('pvc') || secOn('ctp') ? [['summary', [secOn('pvc') && 'PVC', secOn('ctp') && 'CTP'].filter(Boolean).join(' & ') + ' Summary']] : []), ['registers', 'Registers & Audit'], ...(can('reports.employee') ? [['employee', 'Employee Reports']] : [])].map(([k, l]) => `<button data-t="${k}" class="${k === s.view ? 'on' : ''}">${l}</button>`).join('')}
         <span class="right row" style="padding:4px"><button class="btn sm ghost" id="rx">${ICON.excel} Export Excel</button><button class="btn sm ghost" id="rcsv">CSV</button><button class="btn sm ghost" id="rpdf">${ICON.doc} PDF</button><button class="btn sm" id="rpr">${ICON.print} Print</button></span></div>
       <div id="rpt" class="tabpane"></div>`;
     const cp = custPicker($('#rc', v), { value: s.customer, allowAdd: false, placeholder: 'All customers', onPick: c => (s.customer = c) });

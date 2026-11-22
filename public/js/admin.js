@@ -3,7 +3,7 @@
 App.pages.admin = {
   title: 'Users & Settings', tab: null,
   async render(v, sub) {
-    const tabs = [['users', 'Users', 'users'], ['roles', 'Roles & Permissions', 'users'], ['settings', 'Settings', 'settings'], ['backup', 'Backup & Restore', 'backup'], ['audit', 'Audit Log', 'audit']].filter(t => can(t[2]));
+    const tabs = [['users', 'Users', 'users'], ['roles', 'Roles & Permissions', 'users'], ['settings', 'Settings', 'settings'], ['sections', 'Sections (on / off & order)', 'settings'], ['backup', 'Backup & Restore', 'backup'], ['audit', 'Audit Log', 'audit']].filter(t => can(t[2]));
     if (sub) this.tab = sub;
     if (!this.tab || !tabs.find(t => t[0] === this.tab)) this.tab = tabs[0][0];
     v.innerHTML = `<div class="tabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${k === this.tab ? 'on' : ''}">${l}</button>`).join('')}</div><div id="pane" class="tabpane"></div>`;
@@ -62,6 +62,10 @@ App.pages.admin = {
     el.innerHTML = `<div class="grid g23 mb"><div class="panel"><div class="head"><div><h2>Logo & colour</h2><div class="sub">Used on the app, invoices, challans and reports</div></div></div>
         <div class="row" style="gap:16px"><div class="logo-prev" id="lp">${logo ? `<img src="${esc(logo)}">` : '<span class="muted small">No logo</span>'}</div>
         <div style="display:grid;gap:8px"><input type="file" id="lf" accept="image/*" class="inp"><div class="row"><button class="btn xs ghost" id="lrm">Remove logo</button></div></div></div>
+        <div class="mt"><div class="row" style="justify-content:space-between"><b class="small">Logo size on memo / invoice / challan</b><b id="lsv">${logoSize(c)} px</b></div>
+          <div class="row" style="gap:10px;align-items:center"><button type="button" class="btn xs ghost" id="lsm">−</button><input type="range" id="ls" min="30" max="220" step="2" value="${logoSize(c)}" style="flex:1"><button type="button" class="btn xs ghost" id="lsp">+</button><button type="button" class="btn xs ghost" id="lsr">Reset</button></div>
+          <div class="sub">Live preview of the top of your printed memo:</div>
+          <div class="memo-prev"><div class="doc" id="lprev"></div></div></div>
         <div class="form f2 mt">${field('Brand colour', `<input type="color" id="col" value="${/^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#2a7fd0'}" style="height:44px;padding:4px">`)}
         <label class="check" style="align-self:end"><input type="checkbox" id="coldef" ${c.color ? '' : 'checked'}> Use default blue</label></div></div>
       <div class="panel"><div class="head"><h2>Business details</h2><span class="sub">Shown on invoices, challans and reports</span></div><div class="form" id="cf">
@@ -90,20 +94,53 @@ App.pages.admin = {
     $('#lf', el).onchange = e => {
       const f = e.target.files[0]; if (!f) return;
       const img = new Image(), rd = new FileReader();
-      rd.onload = () => { img.onload = () => { const m = 320, sc = Math.min(1, m / Math.max(img.width, img.height)); const cv = document.createElement('canvas'); cv.width = img.width * sc; cv.height = img.height * sc; cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); logo = cv.toDataURL('image/png'); $('#lp', el).innerHTML = `<img src="${logo}">`; }; img.src = rd.result; };
+      rd.onload = () => { img.onload = () => { const m = 320, sc = Math.min(1, m / Math.max(img.width, img.height)); const cv = document.createElement('canvas'); cv.width = img.width * sc; cv.height = img.height * sc; cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); logo = cv.toDataURL('image/png'); $('#lp', el).innerHTML = `<img src="${logo}">`;  preview(); }; img.src = rd.result; };
       rd.readAsDataURL(f);
     };
-    $('#lrm', el).onclick = () => { logo = ''; $('#lp', el).innerHTML = '<span class="muted small">No logo</span>'; };
+    $('#lrm', el).onclick = () => { logo = ''; $('#lp', el).innerHTML = '<span class="muted small">No logo</span>'; preview(); };
+    const preview = () => { const z = +$('#ls', el).value; $('#lsv', el).textContent = z + ' px';
+      $('#lprev', el).innerHTML = companyHeader(`<div style="text-align:right"><div class="doc-title">${esc(formData($('#df', el)).ctp_invoice_title || 'INVOICE')}</div><div style="font-size:18px;font-weight:800;margin-top:8px">INV-00001</div></div>`, { ...c, ...formData($('#cf', el)), logo, logo_size: z }); };
+    $('#ls', el).oninput = preview;
+    $('#lsm', el).onclick = () => { $('#ls', el).value = +$('#ls', el).value - 4; preview(); };
+    $('#lsp', el).onclick = () => { $('#ls', el).value = +$('#ls', el).value + 4; preview(); };
+    $('#lsr', el).onclick = () => { $('#ls', el).value = LOGO_DEFAULT; preview(); };
+    $('#cf', el).addEventListener('input', preview); $('#df', el).addEventListener('input', preview);
+    preview();
     $$('[data-seq] input', el).forEach(i => i.oninput = () => { const tr = i.closest('tr'); const s = d.sequences.find(x => x.key === tr.dataset.seq); $('[data-next]', tr).textContent = $('[data-k=prefix]', tr).value + String((+$('[data-k=last_no]', tr).value || 0) + 1).padStart(s.pad, '0'); });
     $('#ss', el).onclick = () => busy($('#ss', el), async () => {
       const pv = formData($('#pf', el));
       await PUT('/api/settings', { settings: {
-          company: { ...formData($('#cf', el)), ...formData($('#df', el)), logo, color: $('#coldef', el).checked ? '' : $('#col', el).value },
+          company: { ...formData($('#cf', el)), ...formData($('#df', el)), logo, logo_size: +$('#ls', el).value, color: $('#coldef', el).checked ? '' : $('#col', el).value },
           pvc: { default_roll_length: +pv.default_roll_length, default_low_stock: +pv.default_low_stock, allow_nesting: pv.allow_nesting }, ctp: { allow_negative_stock: $('#neg', el).checked },
           lists: Object.fromEntries($$('[data-list]', el).map(b => [b.dataset.list, b._get()])) },
         sequences: $$('[data-seq]', el).map(tr => ({ key: tr.dataset.seq, prefix: $('[data-k=prefix]', tr).value, last_no: $('[data-k=last_no]', tr).value })) });
       await App.loadMeta(); App.applyBranding(); App.renderShell(); App.route(); toast('Settings saved');
     });
+  },
+  /* Sections: tenant decides which business sections exist for them and in which order they appear (menu, dashboard, reports) */
+  async sections(el) {
+    let { order, off } = secCfg(); off = [...off];
+    const draw = () => {
+      el.innerHTML = `${helpTip('sections', '<b>সেকশন:</b> আপনার ব্যবসায় যে বিভাগ নেই তা বন্ধ করুন — মেনু, ড্যাশবোর্ড ও রিপোর্ট থেকে সরে যাবে। পরে চালু করলে সব ডাটা আগের মতোই পাবেন। ▲▼ দিয়ে কোন সেকশন উপরে থাকবে ঠিক করুন।')}
+        <div class="panel"><div class="head"><div><h2>Business sections</h2><div class="sub">Switch off what this business does not have · ▲ ▼ to choose which shows on top. Nothing is deleted — switching back on brings everything back.</div></div></div>
+        <div class="seclist">${order.map((k, i) => { const S = SECTIONS.find(x => x.key === k), on = !off.includes(k); return `<div class="secrow ${on ? '' : 'off'}" data-k="${k}">
+          <div class="secmove"><button class="btn xs ghost" data-up="${i}" ${i === 0 ? 'disabled' : ''} title="Move up">▲</button><button class="btn xs ghost" data-dn="${i}" ${i === order.length - 1 ? 'disabled' : ''} title="Move down">▼</button></div>
+          <div class="secno">${i + 1}</div>
+          <div style="flex:1"><b>${esc(S.label)}</b><div class="sub">${esc(S.bn)}</div></div>
+          ${S.fixed ? '<span class="tag gray">Always on</span>' : `<label class="switch"><input type="checkbox" data-on="${k}" ${on ? 'checked' : ''}><span></span></label><b class="small" style="width:34px">${on ? 'ON' : 'OFF'}</b>`}</div>`; }).join('')}</div>
+        <div class="actions"><button class="btn ghost" id="secreset">Default order</button><button class="btn" id="secsave">${ICON.check} Save sections</button></div></div>`;
+      $$('[data-up]', el).forEach(b => b.onclick = () => { const i = +b.dataset.up; [order[i - 1], order[i]] = [order[i], order[i - 1]]; draw(); });
+      $$('[data-dn]', el).forEach(b => b.onclick = () => { const i = +b.dataset.dn; [order[i + 1], order[i]] = [order[i], order[i + 1]]; draw(); });
+      $$('[data-on]', el).forEach(c => c.onchange = () => { const k = c.dataset.on; off = c.checked ? off.filter(x => x !== k) : [...off, k];
+        if (['press', 'pvc', 'ctp'].every(x => off.includes(x))) { off = off.filter(x => x !== k); toast('Keep at least one of Press, PVC or CTP on', '', 'warn'); } draw(); });
+      $('#secreset', el).onclick = () => { order = SECTIONS.map(x => x.key); draw(); };
+      $('#secsave', el).onclick = () => busy($('#secsave', el), async () => {
+        await PUT('/api/settings', { settings: { sections: { order, off } } });
+        await App.loadMeta(); const me = await GET('/api/me'); App.user = me.user;   // permissions of switched-off sections are removed by the server
+        App.renderShell(); App.route(); toast('Sections saved', off.length ? 'Switched off: ' + off.map(k => SECTIONS.find(x => x.key === k).label).join(', ') : 'All sections on');
+      });
+    };
+    draw();
   },
   async backup(el) {
     el.innerHTML = `<div class="grid g2"><div class="panel"><div class="head"><div><h2>Download backup</h2><div class="sub">Complete copy of all business data as one file</div></div></div>

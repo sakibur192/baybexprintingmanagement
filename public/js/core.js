@@ -470,9 +470,13 @@ function tableToSheet(name, table) {
   return { name, columns: ths.map((l, i) => ({ key: 'c' + i, label: l })), rows };
 }
 const initials = n => String(n || '?').split(/\s+/).filter(Boolean).map(x => x[0]).join('').slice(0, 3).toUpperCase();
-const logoMark = c => c.logo ? `<img src="${esc(c.logo)}" alt="" style="width:52px;height:52px;object-fit:contain">` : `<div class="mark">${esc(initials(c.name))}</div>`;
-function companyHeader(sub = '') {
-  const c = App.meta.settings.company || {};
+/* logo on printed documents — size is the tenant's choice (Settings → Logo size), default 70px */
+const LOGO_DEFAULT = 70;
+const logoSize = c => Math.min(220, Math.max(30, +c.logo_size || LOGO_DEFAULT));
+const logoMark = c => { const z = logoSize(c); return c.logo ? `<img src="${esc(c.logo)}" alt="" style="width:${z}px;height:${z}px;max-width:none;object-fit:contain;flex:none">`
+  : `<div class="mark" style="width:${z}px;height:${z}px;font-size:${Math.round(z * 0.32)}px;flex:none">${esc(initials(c.name))}</div>`; };
+function companyHeader(sub = '', override = null) {
+  const c = override || App.meta.settings.company || {};
   return `<div class="doc-head"><div class="doc-logo">${logoMark(c)}<div><h1>${esc(c.name)}</h1><div class="muted">${esc(c.address)}</div>
     <div class="muted">Mobile: ${esc(c.phone_ctp)} (CTP), ${esc(c.phone_manager)} (Manager)</div><div class="muted">${esc(c.email)}${c.email2 ? ', ' + esc(c.email2) : ''}</div></div></div>${sub}</div>`;
 }
@@ -492,43 +496,66 @@ function navHTML(nav) {
   }
   return h;
 }
-const NAV = [
-  { cap: 'OVERVIEW' },
-  { id: 'dashboard', label: 'Dashboard', icon: 'dash', perm: ['dashboard'] },
-  { cap: 'PRINTING PRESS' },
-  { id: 'press-orders', label: 'Orders', icon: 'invoice', perm: ['press.view', 'press.orders'] },
-  { id: 'press-quotes', label: 'Quotations', icon: 'doc', perm: ['press.view', 'press.orders'] },
-  { id: 'press-production', label: 'Production & Design', icon: 'gear', perm: ['press.view', 'press.production', 'press.design'] },
-  { id: 'press-store', label: 'Store (paper, ink, plate…)', icon: 'box', perm: ['press.view', 'press.store'] },
-  { id: 'press-delivery', label: 'Delivery Challans', icon: 'truck', perm: ['press.view', 'press.delivery'] },
-  { id: 'press-invoices', label: 'Invoices', icon: 'register', perm: ['press.view', 'press.invoice'] },
-  { id: 'press-materials', label: 'Customer Materials', icon: 'layers', perm: ['press.view', 'press.orders', 'press.store'], group: 'Press tools' },
-  { id: 'press-calc', label: 'Paper Calculator', icon: 'chart', perm: ['press.view', 'press.orders'], group: 'Press tools' },
-  { id: 'press-machines', label: 'Machines', icon: 'print', perm: ['press.view', 'press.machines'], group: 'Press tools' },
-  { id: 'press-suppliers', label: 'Suppliers & Outsourcing', icon: 'users', perm: ['press.suppliers', 'press.store'], group: 'Press tools' },
-  { cap: 'PVC / MEDIA DIVISION' },
-  { id: 'pvc', label: 'PVC Inventory', icon: 'roll', perm: ['pvc.view'] },
-  { id: 'pvc-print', label: 'PVC Print Entry', icon: 'print', perm: ['pvc.print'] },
-  { id: 'pvc-invoices', label: 'PVC Sales / Invoice', icon: 'invoice', perm: ['pvc.invoice'] },
-  { id: 'pvc-challans', label: 'PVC Challan', icon: 'truck', perm: ['pvc.challan'] },
-  { id: 'ink', label: 'Ink Stock', icon: 'ink', perm: ['ink'] },
-  { cap: 'CTP DIVISION' },
-  { id: 'ctp', label: 'CTP Inventory', icon: 'plate', perm: ['ctp.view'] },
-  { id: 'ctp-invoices', label: 'CTP Sales / Invoice', icon: 'invoice', perm: ['ctp.invoice'] },
-  { id: 'ctp-ownuse', label: 'CTP Own Use', icon: 'own', perm: ['ctp.ownuse'] },
-  { id: 'ctp-challans', label: 'CTP Challan', icon: 'truck', perm: ['ctp.challan'] },
-  { cap: 'SHARED BUSINESS' },
-  { id: 'customers', label: 'Customers', icon: 'users', perm: ['customers.view'] },
-  { id: 'accounts', label: 'Accounts, Payments & Refunds', icon: 'money', perm: ['accounts.view', 'payments', 'refunds'] },
-  { id: 'expenses', label: 'Expenses', icon: 'expense', perm: ['expenses'] },
-  { id: 'reports', label: 'Reports Centre', icon: 'chart', perm: ['reports'] },
-  { id: 'press-settings', label: 'Press Settings', icon: 'gear', perm: ['settings', 'press.settings'] },
-  { id: 'admin', label: 'Users & Settings', icon: 'gear', perm: ['users', 'settings', 'backup', 'audit'] },
-  { id: 'android', label: 'App & Downloads', icon: 'phone', perm: ['dashboard'] },
-  { id: 'billing', label: 'Subscription', icon: 'key', perm: ['billing'] },
-  { cap: 'INTERNAL' },
-  { id: 'internal', label: 'Internal Inventory', icon: 'box', perm: ['internal'] },
+/* Sidebar. `sec` = business section (tenant can switch sections on/off and order them: Settings → Sections).
+   Inside every section: daily work first, then the section's report, then its inventory / self-use stock at the bottom. */
+const SECTIONS = [
+  { key: 'press', cap: 'PRINTING PRESS', label: 'Printing Press', bn: 'অফসেট প্রিন্টিং প্রেস — অর্ডার, প্রোডাকশন, ডেলিভারি, স্টোর' },
+  { key: 'pvc', cap: 'PVC / MEDIA DIVISION', label: 'PVC / Media', bn: 'PVC / ডিজিটাল প্রিন্ট — প্রিন্ট এন্ট্রি, বিল, রোল ও কালির স্টক' },
+  { key: 'ctp', cap: 'CTP DIVISION', label: 'CTP Plates', bn: 'CTP প্লেট — বিক্রি, চালান, প্লেট স্টক, নিজস্ব ব্যবহার' },
+  { key: 'shared', cap: 'SHARED BUSINESS', label: 'Shared (customers, accounts, reports, settings)', bn: 'কাস্টমার, হিসাব, খরচ, রিপোর্ট, সেটিংস — সবসময় চালু', fixed: true },
+  { key: 'internal', cap: 'INTERNAL', label: 'Internal Inventory', bn: 'নিজস্ব ব্যবহারের মাল — সলভেন্ট, ওয়াশ, ডেভেলপার, ফিল্টার পেপার' },
 ];
+const NAV = [
+  { cap: 'OVERVIEW', sec: 'overview' },
+  { id: 'dashboard', label: 'Dashboard', icon: 'dash', perm: ['dashboard'], sec: 'overview' },
+  { id: 'press-orders', label: 'Orders', icon: 'invoice', perm: ['press.view', 'press.orders'], sec: 'press' },
+  { id: 'press-quotes', label: 'Quotations', icon: 'doc', perm: ['press.view', 'press.orders'], sec: 'press' },
+  { id: 'press-production', label: 'Production & Design', icon: 'gear', perm: ['press.view', 'press.production', 'press.design'], sec: 'press' },
+  { id: 'press-delivery', label: 'Delivery Challans', icon: 'truck', perm: ['press.view', 'press.delivery'], sec: 'press' },
+  { id: 'press-invoices', label: 'Invoices', icon: 'register', perm: ['press.view', 'press.invoice'], sec: 'press' },
+  { id: 'section-report/press', label: 'Press Daily Report', icon: 'chart', perm: ['reports'], sec: 'press' },
+  { id: 'press-materials', label: 'Customer Materials', icon: 'layers', perm: ['press.view', 'press.orders', 'press.store'], group: 'Press tools', sec: 'press' },
+  { id: 'press-calc', label: 'Paper Calculator', icon: 'chart', perm: ['press.view', 'press.orders'], group: 'Press tools', sec: 'press' },
+  { id: 'press-machines', label: 'Machines', icon: 'print', perm: ['press.view', 'press.machines'], group: 'Press tools', sec: 'press' },
+  { id: 'press-suppliers', label: 'Suppliers & Outsourcing', icon: 'users', perm: ['press.suppliers', 'press.store'], group: 'Press tools', sec: 'press' },
+  { id: 'press-settings', label: 'Press Settings', icon: 'gear', perm: ['settings', 'press.settings'], group: 'Press tools', sec: 'press' },
+  { id: 'press-store', label: 'Store (paper, ink, plate…)', icon: 'box', perm: ['press.view', 'press.store'], sec: 'press' },
+  { id: 'pvc-print', label: 'PVC Print Entry', icon: 'print', perm: ['pvc.print'], sec: 'pvc' },
+  { id: 'pvc-invoices', label: 'PVC Sales / Invoice', icon: 'invoice', perm: ['pvc.invoice'], sec: 'pvc' },
+  { id: 'pvc-challans', label: 'PVC Challan', icon: 'truck', perm: ['pvc.challan'], sec: 'pvc' },
+  { id: 'section-report/pvc', label: 'PVC Daily Report', icon: 'chart', perm: ['reports'], sec: 'pvc' },
+  { id: 'pvc', label: 'PVC Inventory', icon: 'roll', perm: ['pvc.view'], sec: 'pvc' },
+  { id: 'ink', label: 'Ink Stock', icon: 'ink', perm: ['ink'], sec: 'pvc' },
+  { id: 'ctp-invoices', label: 'CTP Sales / Invoice', icon: 'invoice', perm: ['ctp.invoice'], sec: 'ctp' },
+  { id: 'ctp-challans', label: 'CTP Challan', icon: 'truck', perm: ['ctp.challan'], sec: 'ctp' },
+  { id: 'section-report/ctp', label: 'CTP Daily Report', icon: 'chart', perm: ['reports'], sec: 'ctp' },
+  { id: 'ctp', label: 'CTP Inventory', icon: 'plate', perm: ['ctp.view'], sec: 'ctp' },
+  { id: 'ctp-ownuse', label: 'CTP Own Use', icon: 'own', perm: ['ctp.ownuse'], sec: 'ctp' },
+  { id: 'customers', label: 'Customers', icon: 'users', perm: ['customers.view'], sec: 'shared' },
+  { id: 'accounts', label: 'Accounts, Payments & Refunds', icon: 'money', perm: ['accounts.view', 'payments', 'refunds'], sec: 'shared' },
+  { id: 'expenses', label: 'Expenses', icon: 'expense', perm: ['expenses'], sec: 'shared' },
+  { id: 'section-report/accounts', label: 'Daily Cash Report', icon: 'chart', perm: ['reports'], sec: 'shared' },
+  { id: 'reports', label: 'Reports Centre', icon: 'chart', perm: ['reports'], sec: 'shared' },
+  { id: 'admin', label: 'Users & Settings', icon: 'gear', perm: ['users', 'settings', 'backup', 'audit'], sec: 'shared' },
+  { id: 'android', label: 'App & Downloads', icon: 'phone', perm: ['dashboard'], sec: 'shared' },
+  { id: 'billing', label: 'Subscription', icon: 'key', perm: ['billing'], sec: 'shared' },
+  { id: 'internal', label: 'Internal Inventory', icon: 'box', perm: ['internal'], sec: 'internal' },
+  { id: 'section-report/internal', label: 'Internal Stock Report', icon: 'chart', perm: ['reports'], sec: 'internal' },
+];
+/** tenant's section setup: order + which are switched off */
+function secCfg() {
+  const v = App.meta?.settings?.sections || {}, keys = SECTIONS.map(x => x.key);
+  const order = [...new Set((v.order || []).filter(k => keys.includes(k)))]; keys.forEach(k => { if (!order.includes(k)) order.push(k); });
+  return { order, off: (v.off || []).filter(k => k !== 'shared') };
+}
+const secOn = k => !secCfg().off.includes(k);
+/** NAV in the tenant's section order, switched-off sections removed */
+function navOrdered() {
+  const { order, off } = secCfg(), out = NAV.filter(n => n.sec === 'overview');
+  for (const k of order) { if (off.includes(k)) continue; const S = SECTIONS.find(x => x.key === k); out.push({ cap: S.cap, sec: k }, ...NAV.filter(n => n.id && n.sec === k)); }
+  return out;
+}
+
 const App = {
   user: null, meta: null, today: null, pages: {}, current: null,
   async start() {
@@ -584,8 +611,9 @@ const App = {
   },
   renderShell() {
     const u = this.user;
-    const nav = NAV.filter((n, i) => {
-      if (n.cap) { const next = NAV.slice(i + 1); const end = next.findIndex(x => x.cap); return (end < 0 ? next : next.slice(0, end)).some(x => x.perm.some(p => u.perms.includes(p))); }
+    const ALL = navOrdered();
+    const nav = ALL.filter((n, i) => {
+      if (n.cap) { const next = ALL.slice(i + 1); const end = next.findIndex(x => x.cap); return (end < 0 ? next : next.slice(0, end)).some(x => x.perm.some(p => u.perms.includes(p))); }
       return n.perm.some(p => u.perms.includes(p));
     });
     const co = this.meta.settings.company || {}, t = this.tenant || {};
@@ -622,17 +650,19 @@ const App = {
   closeSide() { $('#side')?.classList.remove('open'); $('#ovl')?.classList.remove('on'); },
   async logout() { await POST('/api/logout', {}, { idem: false }).catch(() => {}); this.user = null; this.renderLogin(); location.hash = ''; },
   route() {
-    const home = this.user.perms.includes('dashboard') ? 'dashboard' : (NAV.find(n => n.id && n.perm.some(p => this.user.perms.includes(p))) || { id: 'dashboard' }).id;   // roles without the dashboard land on their first allowed page
+    const home = this.user.perms.includes('dashboard') ? 'dashboard' : (navOrdered().find(n => n.id && n.perm.some(p => this.user.perms.includes(p))) || { id: 'dashboard' }).id;   // roles without the dashboard land on their first allowed page
     let [page, ...args] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
-    if (!page || (page === 'dashboard' && home !== 'dashboard')) page = home;
-    const def = NAV.find(n => n.id === page);
-    const target = page && this.pages[page] ? page : home;
+    if (!page || (page === 'dashboard' && home !== 'dashboard')) [page, ...args] = home.split('/');
+    const def = NAV.find(n => n.id === page) || NAV.find(n => n.id === page + '/' + (args[0] || ''));
+    if (def && def.sec && !['overview', 'shared'].includes(def.sec) && !secOn(def.sec)) { $('#view').innerHTML = `<div class="panel"><div class="empty">${ICON.shield}The ${esc(SECTIONS.find(x => x.key === def.sec).label)} section is switched off for this business.${can('settings') ? ' <a href="#/admin/sections">Turn it on in Settings → Sections</a>' : ''}</div></div>`; return; }
+    const target = page && this.pages[page] ? page : home.split('/')[0];
     if (def && !def.perm.some(p => this.user.perms.includes(p))) { $('#view').innerHTML = `<div class="panel"><div class="empty">${ICON.shield}You do not have access to this page.</div></div>`; return; }
-    $$('.nav[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === target || (target.startsWith(n.dataset.page + '-') && !$(`.nav[data-page="${target}"]`))));
+    const full = [target, ...args].join('/');
+    $$('.nav[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === target || (n.dataset.page.includes('/') && full.startsWith(n.dataset.page)) || (target.startsWith(n.dataset.page + '-') && !$(`.nav[data-page="${target}"]`))));
     $$('.navsub').forEach(sub => { if ($('.nav.active', sub) && sub.hidden) { sub.hidden = false; sub.previousElementSibling.classList.add('open'); } });
     const pg = this.pages[target];
     $('#title').textContent = pg.title || def?.label || '';
-    $('#kick').textContent = pg.kicker || String(App.meta.settings.company?.name || '').toUpperCase() + ' / ' + (def ? (NAV.slice(0, NAV.indexOf(def)).reverse().find(n => n.cap)?.cap || '') : '');
+    $('#kick').textContent = pg.kicker || String(App.meta.settings.company?.name || '').toUpperCase() + ' / ' + (def ? (def.sec === 'overview' ? 'OVERVIEW' : SECTIONS.find(x => x.key === def.sec)?.cap || '') : '');
     const old = $('#view'), v = old.cloneNode(false); old.replaceWith(v);   // fresh node: no event handlers leak between pages
     v.classList.remove('page-enter'); void v.offsetWidth; v.classList.add('page-enter');
     v.innerHTML = `<div class="grid g4">${'<div class="sk sk-card"></div>'.repeat(4)}</div><div class="sk" style="height:280px;margin-top:16px;border-radius:14px"></div>`;

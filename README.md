@@ -55,7 +55,7 @@ Logo & brand colour · business details · invoice/challan titles and footer not
 - This README — install, deploy (Coolify / VPS), backup & restore.
 
 ## Tests
-`node tests/acceptance-test.js` (134 checks) and `node tests/press-test.js` (94 checks) against a running server.
+`node tests/acceptance-test.js` (134 checks) and `node tests/press-test.js` (94 checks) against a running server; `node tests/sections-test.js` (21 checks) after seeding the demo business.
 `node tests/acceptance-test.js` (server running) — 98 checks: spec v1.0–1.3 acceptance tests + SaaS isolation, trial lock, payment approval, suspension, impersonation, Android release upload/version check/forced update/download, brochure upload & download, discounts & coupons.
 
 ## Deploy (Coolify / VPS)
@@ -79,6 +79,16 @@ Every text on the public website (`/`) can be edited from the super admin. Nothi
 Overview (Dashboard) → **Printing Press** → **PVC / Media** → **CTP** → Shared (Customers, Accounts/Payments/Refunds, Expenses, Reports, Press Settings, Users & Settings, App, Subscription) → **Internal Inventory** (bottom, unchanged).
 Only the old *General* section was removed: its lamination film / paper stock now lives in **Press → Store**, and ID-card / memo / binding jobs are made as **Counter Jobs** (order + challan + invoice in one step). Old General bills stay viewable read-only.
 **Internal Inventory** (PVC solvent, CTP wash / developer, filter paper, anything the business adds) stays its own section exactly as before; it is kept separate from the press store, and its low-stock items also show in the dashboard's stock alerts.
+
+## Sections on / off & order (Users & Settings → Sections)
+Each business turns on only what it has — **Printing Press, PVC / Media, CTP, Internal Inventory** (Shared: customers, accounts, reports, settings is always on) — and uses ▲ ▼ to choose which section shows on top. A switched-off section disappears from the menu, dashboard, reports and quick actions, and its permissions are removed on the server too (its work APIs answer 403). Nothing is deleted; switching it back on brings everything back. At least one of Press / PVC / CTP must stay on.
+Inside every section the menu runs: daily work → the section's **Daily Report** → its inventory / self-use stock at the bottom (e.g. CTP: Sales, Challan, Daily Report, CTP Inventory, CTP Own Use; PVC: Print Entry, Sales, Challan, Daily Report, PVC Inventory, Ink Stock; Press: … Store last).
+
+## Section daily / custom reports
+`#/section-report/<press|pvc|ctp|internal|accounts>` (also linked at the top of the Reports Centre): Today · Yesterday · This week (from Saturday) · This month · Last month · Custom range. Each shows summary figures + detail tables (sales, stock opening→closing, own use, print entries, ink, challans, orders, production steps by their real date, material issued, purchases, payments, expenses). **Print** (A4, one click), **PDF**, **Excel** (one sheet per table + summary) and **CSV**. Needs the *Reports* permission plus access to that section. API: `GET /api/section-report/:sec?from&to` (section-report.js).
+
+## Logo size on documents
+Users & Settings → Settings → *Logo size on memo / invoice / challan*: slider 30–220 px (default 70) with a live preview of the printed memo header; applies to every invoice, challan, quotation, order sheet and report.
 
 ## Printing Press (from the offset press spec)
 - **Quotations**: price offer (A4 print) → Sent / Accepted / Rejected (auto *Expired* after the validity date) → **Convert to order** with all products, prices and an optional advance. No stock or accounts effect.
