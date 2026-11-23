@@ -302,6 +302,7 @@ CREATE TABLE IF NOT EXISTS public.platform_app_releases(id SERIAL PRIMARY KEY, v
 CREATE TABLE IF NOT EXISTS public.platform_files(key TEXT PRIMARY KEY, file_name TEXT, mime TEXT, size INT, data BYTEA NOT NULL, downloads INT DEFAULT 0,
   updated_by TEXT, updated_at TIMESTAMPTZ DEFAULT now());
 CREATE TABLE IF NOT EXISTS public.platform_audit(id BIGSERIAL PRIMARY KEY, admin_id INT, admin_name TEXT, action TEXT NOT NULL, tenant_id INT, details JSONB, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS public.platform_snapshots(id BIGSERIAL PRIMARY KEY, tenant_id INT NOT NULL, reason TEXT, mode TEXT, created_by TEXT, counts JSONB, size INT, data BYTEA NOT NULL, created_at TIMESTAMPTZ DEFAULT now());
 `;
 const DEFAULT_PLANS = [
   ['Monthly', 1, 500, 'Pay month by month', '', 1], ['3 Months', 3, 1500, 'Quarterly subscription', '', 2],
@@ -2289,9 +2290,31 @@ app.get('/api/audit', can('audit'), wrap(async (req, res) => {
 /* ---------- backup / restore ---------- */
 const BACKUP_TABLES = ['roles', 'users', 'settings', 'invoice_sequences', 'customers', 'ctp_products', 'ctp_prices', 'pvc_media', 'pvc_print_entries', 'ctp_invoices', 'ctp_invoice_items',
   'pvc_invoices', 'pvc_invoice_items', 'ctp_stock_movements', 'pvc_stock_movements', 'pvc_ink_stock', 'challans', 'challan_items', 'gen_items', 'gen_invoices', 'gen_invoice_items', 'gen_moves', ...PRESS.TABLES, 'payments', 'payment_allocations', 'refunds', 'expenses', 'audit_logs'];
-app.get('/api/backup', can('backup'), wrap(async (req, res) => {
-  const data = { app: 'sks-printers-ubm', version: 1, created_at: new Date().toISOString(), created_by: req.user.full_name, tables: {} };
+/** every table of the current tenant as plain JSON (design files as base64) — used by Backup and by support snapshots */
+async function dumpTenantData(createdBy) {
+  const data = { app: 'sks-printers-ubm', version: 1, created_at: new Date().toISOString(), created_by: createdBy, tables: {} };
   for (const t of BACKUP_TABLES) data.tables[t] = await q(t === 'press_design_files' ? `SELECT id, item_id, filename, mime, size, encode(data,'base64') data, uploaded_by_name, uploaded_at FROM ${t} ORDER BY 1` : `SELECT * FROM ${t} ORDER BY 1`);
+  return data;
+}
+/** replace all data of the current tenant with a backup (inside transaction c) */
+async function loadTenantData(c, d) {
+  await c.query(`TRUNCATE ${BACKUP_TABLES.slice().reverse().join(',')}, idem_keys RESTART IDENTITY CASCADE`);
+  for (const t of BACKUP_TABLES) {
+    const rows = d.tables[t] || [];
+    if (!rows.length) continue;
+    const cols = (await c.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name=$1 AND table_schema=current_schema()`, [t])).rows;
+    const valid = cols.map(x => x.column_name), jsonCols = cols.filter(x => x.data_type === 'jsonb').map(x => x.column_name);
+    for (const r of rows) {
+      const ks = Object.keys(r).filter(k => valid.includes(k));
+      await c.query(`INSERT INTO ${t}(${ks.map(k => '"' + k + '"').join(',')}) VALUES(${ks.map((_, i) => '$' + (i + 1)).join(',')})`,
+        ks.map(k => (jsonCols.includes(k) && r[k] != null ? JSON.stringify(r[k]) : t === 'press_design_files' && k === 'data' && r[k] != null ? Buffer.from(String(r[k]), 'base64') : r[k])));
+    }
+    if (valid.includes('id') && t !== 'settings' && t !== 'invoice_sequences')
+      await c.query(`SELECT setval(pg_get_serial_sequence('${t}','id'), GREATEST((SELECT COALESCE(MAX(id),0) FROM ${t}),1), (SELECT COUNT(*)>0 FROM ${t}))`);
+  }
+}
+app.get('/api/backup', can('backup'), wrap(async (req, res) => {
+  const data = await dumpTenantData(req.user.full_name);
   await audit(null, req.user, 'backup', 'system', null);
   res.set('Content-Type', 'application/json');
   res.set('Content-Disposition', `attachment; filename="${req.tenant.slug}-backup-${today()}.json"`);
@@ -2302,20 +2325,7 @@ app.post('/api/restore', can('backup'), wrap(async (req, res) => {
   if (!d || d.app !== 'sks-printers-ubm' || !d.tables) bad('This is not a valid backup file');
   if (req.body.confirm !== 'RESTORE') bad('Type RESTORE to confirm');
   await tx(async c => {
-    await c.query(`TRUNCATE ${BACKUP_TABLES.slice().reverse().join(',')}, idem_keys RESTART IDENTITY CASCADE`);
-    for (const t of BACKUP_TABLES) {
-      const rows = d.tables[t] || [];
-      if (!rows.length) continue;
-      const cols = (await c.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name=$1 AND table_schema=current_schema()`, [t])).rows;
-      const valid = cols.map(x => x.column_name), jsonCols = cols.filter(x => x.data_type === 'jsonb').map(x => x.column_name);
-      for (const r of rows) {
-        const ks = Object.keys(r).filter(k => valid.includes(k));
-        await c.query(`INSERT INTO ${t}(${ks.map(k => '"' + k + '"').join(',')}) VALUES(${ks.map((_, i) => '$' + (i + 1)).join(',')})`,
-          ks.map(k => (jsonCols.includes(k) && r[k] != null ? JSON.stringify(r[k]) : t === 'press_design_files' && k === 'data' && r[k] != null ? Buffer.from(String(r[k]), 'base64') : r[k])));
-      }
-      if (valid.includes('id') && t !== 'settings' && t !== 'invoice_sequences')
-        await c.query(`SELECT setval(pg_get_serial_sequence('${t}','id'), GREATEST((SELECT COALESCE(MAX(id),0) FROM ${t}),1), (SELECT COUNT(*)>0 FROM ${t}))`);
-    }
+    await loadTenantData(c, d);
     await audit(c, req.user, 'restore', 'system', null, { from_backup: d.created_at });
   });
   await pool.query(`DELETE FROM public.platform_sessions WHERE kind='tenant' AND tenant_id=$1`, [req.tenant.id]);
@@ -2559,6 +2569,74 @@ app.get('/api/super/tenants/:id/backup', wrap(async (req, res) => {
   const data = { app: 'sks-printers-ubm', version: 1, created_at: new Date().toISOString(), created_by: req.admin.full_name + ' (Baybex)', tables: {} };
   await inTenant(t, async () => { for (const tb of BACKUP_TABLES) data.tables[tb] = await q(`SELECT * FROM ${tb} ORDER BY 1`); });
   res.set('Content-Disposition', `attachment; filename="${t.slug}-backup-${today()}.json"`); res.json(data);
+}));
+/* ---- clear a business's data (trial junk) — business details, users, roles, settings and subscription stay ---- */
+const zlib = require('zlib');
+/** transactions: everything entered during daily work */
+const CLEAR_TX = ['pvc_print_entries', 'ctp_invoices', 'ctp_invoice_items', 'pvc_invoices', 'pvc_invoice_items', 'ctp_stock_movements', 'pvc_stock_movements', 'pvc_ink_stock',
+  'challans', 'challan_items', 'gen_invoices', 'gen_invoice_items', 'gen_moves', ...PRESS.TABLES.filter(t => !['machines', 'suppliers'].includes(t)),
+  'payments', 'payment_allocations', 'refunds', 'expenses', 'audit_logs', 'idem_keys'];
+/** lists the business built up: customers, plate sizes, media, store / internal items, machines, suppliers */
+const CLEAR_MASTERS = ['customers', 'ctp_prices', 'ctp_products', 'pvc_media', 'gen_items', 'machines', 'suppliers'];
+const SNAP_KEEP = 5;
+async function tenantCounts() {
+  const n = async t => +(await q1(`SELECT COUNT(*)::int n FROM ${t}`)).n;
+  const sum = async ts => { let x = 0; for (const t of ts) x += await n(t); return x; };
+  return { customers: await n('customers'), invoices: await sum(['ctp_invoices', 'pvc_invoices', 'press_invoices', 'gen_invoices']), orders: await n('press_orders'), quotations: await n('press_quotes'),
+    challans: await sum(['challans', 'press_challans']), payments: await n('payments'), refunds: await n('refunds'), expenses: await n('expenses'),
+    stock_entries: await sum(['ctp_stock_movements', 'pvc_stock_movements', 'pvc_ink_stock', 'gen_moves', 'pvc_print_entries', 'press_issues', 'store_purchases']),
+    items: await sum(['ctp_products', 'pvc_media', 'gen_items', 'machines', 'suppliers']), users: await n('users') };
+}
+async function takeSnapshot(t, admin, reason, mode) {
+  const { data, counts } = await inTenant(t, async () => ({ data: await dumpTenantData(admin.full_name + ' (Baybex support)'), counts: await tenantCounts() }));
+  const gz = zlib.gzipSync(Buffer.from(JSON.stringify(data)));
+  const r = await pq1(`INSERT INTO public.platform_snapshots(tenant_id,reason,mode,created_by,counts,size,data) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`,
+    [t.id, reason, mode || null, admin.full_name, JSON.stringify(counts), gz.length, gz]);
+  await pool.query(`DELETE FROM public.platform_snapshots WHERE tenant_id=$1 AND id NOT IN (SELECT id FROM public.platform_snapshots WHERE tenant_id=$1 ORDER BY id DESC LIMIT ${SNAP_KEEP})`, [t.id]);
+  return r;
+}
+const tenantById = async id => { const t = await pq1(`SELECT * FROM public.platform_tenants WHERE id=$1`, [id]); if (!t) bad('Tenant not found', 404); return t; };
+app.get('/api/super/tenants/:id/data-summary', wrap(async (req, res) => {
+  const t = await tenantById(req.params.id);
+  res.json({ counts: await inTenant(t, tenantCounts),
+    snapshots: await pq(`SELECT id, reason, mode, created_by, counts, size, created_at FROM public.platform_snapshots WHERE tenant_id=$1 ORDER BY id DESC`, [t.id]) });
+}));
+app.post('/api/super/tenants/:id/clear-data', wrap(async (req, res) => {
+  const t = await tenantById(req.params.id), mode = req.body?.mode;
+  if (!['transactions', 'everything'].includes(mode)) bad('Choose what to clear');
+  if (String(req.body?.confirm || '').trim().toLowerCase() !== t.slug) bad('Type the Business ID exactly to confirm');
+  const before = await inTenant(t, tenantCounts);
+  const snap = await takeSnapshot(t, req.admin, 'Before clearing data', mode);   // safety copy first — restorable for a while
+  await inTenant(t, () => tx(async c => {
+    await c.query(`TRUNCATE ${[...CLEAR_TX, ...(mode === 'everything' ? CLEAR_MASTERS : [])].join(',')} RESTART IDENTITY CASCADE`);
+    await c.query(`UPDATE invoice_sequences SET last_no=0`);                       // numbering starts again at 00001
+    if (mode === 'transactions') await c.query(`UPDATE gen_items SET avg_cost=0`);  // no stock left, so no stock value
+    await audit(c, { full_name: req.admin.full_name + ' (Baybex support)' }, 'data_cleared', 'system', null,
+      { mode, note: str(req.body.note, 300), snapshot: snap.id, removed: before });
+  }));
+  if (mode === 'everything') await migrateTenant(t, { company: {} });   // put back the starter lists a new business gets (plate sizes, media, internal items); company details untouched
+  await platformAudit(null, req.admin, 'tenant_data_cleared', t.id, { mode, snapshot: snap.id, removed: before, note: str(req.body.note, 300) });
+  res.json({ ok: true, snapshot: snap.id, before, after: await inTenant(t, tenantCounts) });
+}));
+app.get('/api/super/snapshots/:sid/download', wrap(async (req, res) => {
+  const s = await pq1(`SELECT s.*, t.slug FROM public.platform_snapshots s JOIN public.platform_tenants t ON t.id=s.tenant_id WHERE s.id=$1`, [req.params.sid]); if (!s) bad('Snapshot not found', 404);
+  res.set('Content-Type', 'application/json');
+  res.set('Content-Disposition', `attachment; filename="${s.slug}-snapshot-${new Date(s.created_at).toISOString().slice(0, 10)}-${s.id}.json"`);
+  res.send(zlib.gunzipSync(s.data));
+}));
+app.post('/api/super/snapshots/:sid/restore', wrap(async (req, res) => {
+  const s = await pq1(`SELECT * FROM public.platform_snapshots WHERE id=$1`, [req.params.sid]); if (!s) bad('Snapshot not found', 404);
+  const t = await tenantById(s.tenant_id);
+  if (String(req.body?.confirm || '').trim().toLowerCase() !== t.slug) bad('Type the Business ID exactly to confirm');
+  const d = JSON.parse(zlib.gunzipSync(s.data).toString());
+  const cur = await takeSnapshot(t, req.admin, `Before restoring snapshot #${s.id}`, 'restore');   // so the restore itself can be undone
+  await inTenant(t, () => tx(async c => {
+    await loadTenantData(c, d);
+    await audit(c, { full_name: req.admin.full_name + ' (Baybex support)' }, 'restore', 'system', null, { from_snapshot: s.id, taken: s.created_at });
+  }));
+  await migrateTenant(t);   // bring an older snapshot up to the current table layout
+  await platformAudit(null, req.admin, 'tenant_snapshot_restored', t.id, { snapshot: s.id, safety_snapshot: cur.id });
+  res.json({ ok: true, safety_snapshot: cur.id, counts: await inTenant(t, tenantCounts) });
 }));
 /* plans */
 function planFields(b) {

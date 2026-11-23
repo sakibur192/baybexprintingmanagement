@@ -120,6 +120,51 @@ SA.pages.tenants = {
       $('#ns', m.el).onclick = () => busy($('#ns', m.el), async () => { const t = await POST('/api/super/tenants', formData($('#nf', m.el)), { idem: false }); toast('Business created', t.slug); m.close(); SA.go('tenants/' + t.id); });
     };
   },
+  /* ---- clear a business's data: daily records only, or a full fresh start; business details, users, settings and subscription always stay ---- */
+  async clearData(t) {
+    const { counts: c } = await GET(`/api/super/tenants/${t.id}/data-summary`);
+    const n = x => (+x || 0).toLocaleString('en-IN');
+    const m = modal({ title: 'Clear data — ' + t.business_name, size: 'wide', body: `
+      <div class="note">ট্রায়ালে বা ভুল করে দেওয়া সব হিসাব মুছে ব্যবসাটিকে নতুন করে শুরু করার জন্য। <b>ব্যবসার তথ্য, লোগো, ইউজার ও পাসওয়ার্ড, রোল, সেটিংস আর সাবস্ক্রিপশন সবসময় থেকে যাবে।</b> মোছার আগে একটা সেফটি স্ন্যাপশট নিজে থেকেই সেভ হয় — দরকার হলে ফিরিয়ে আনা যায়।</div>
+      <div class="clr-grid" id="clrm">
+        <label class="clr-opt"><input type="radio" name="mode" value="transactions" checked><div><b>Daily records only</b><small>শুধু হিসাব-নিকাশ</small>
+          <ul><li>${n(c.invoices)} invoices · ${n(c.orders)} orders · ${n(c.quotations)} quotations · ${n(c.challans)} challans</li><li>${n(c.payments)} payments · ${n(c.refunds)} refunds · ${n(c.expenses)} expenses</li><li>${n(c.stock_entries)} stock / print entries · activity log</li></ul>
+          <div class="keep">Keeps ${n(c.customers)} customers and ${n(c.items)} plates / media / store items (their stock becomes 0)</div></div></label>
+        <label class="clr-opt"><input type="radio" name="mode" value="everything"><div><b>Full fresh start</b><small>পুরো ফ্রেশ — নতুন ব্যবসার মতো</small>
+          <ul><li>Everything in “Daily records only”</li><li>+ ${n(c.customers)} customers, ${n(c.items)} plates / media / store items, machines, suppliers</li><li>Starter plate sizes, media and internal items are put back</li></ul>
+          <div class="keep">Keeps business details, ${n(c.users)} users, roles, settings, subscription</div></div></label>
+      </div>
+      <div class="form f2 mt" id="clrf">${field('Note (why)', '<input name="note" placeholder="e.g. Trial test data, owner asked on phone">')}${field(`Type the Business ID <b>${esc(t.slug)}</b> to confirm`, `<input name="confirm" autocomplete="off" placeholder="${esc(t.slug)}">`)}</div>
+      <div class="actions"><button class="btn ghost" data-x>Cancel</button><button class="btn danger" id="clrgo" disabled>Clear data</button></div>` });
+    const go = $('#clrgo', m.el), cf = $('[name=confirm]', m.el);
+    cf.oninput = () => { go.disabled = cf.value.trim().toLowerCase() !== t.slug; };
+    $('[data-x]', m.el).onclick = m.close;
+    go.onclick = () => busy(go, async () => {
+      const mode = $('[name=mode]:checked', m.el).value;
+      const r = await POST(`/api/super/tenants/${t.id}/clear-data`, { mode, confirm: cf.value, note: $('[name=note]', m.el).value }, { idem: false });
+      m.close(); toast('Data cleared', `${t.business_name} starts fresh · safety snapshot #${r.snapshot} saved`); SA.refresh();
+    });
+  },
+  async snapshots(v, t) {
+    const el = $('#snp', v); if (!el) return;
+    const { snapshots } = await GET(`/api/super/tenants/${t.id}/data-summary`);
+    if (!el.isConnected) return;
+    if (!snapshots.length) { el.innerHTML = '<div class="empty" style="padding:18px">No snapshots yet — one is saved automatically the first time data is cleared.</div>'; return; }
+    dataTable(el, snapshots, [
+      { k: 'created_at', label: 'Saved', f: r => fdt(r.created_at) }, { k: 'reason', label: 'Why', f: r => `${esc(r.reason || '')}${r.mode && r.mode !== 'restore' ? ` <span class="tag gray">${r.mode === 'everything' ? 'full fresh' : 'records only'}</span>` : ''}` },
+      { k: 'counts', label: 'It holds', sort: false, f: r => { const c = r.counts || {}; return `<span class="sub">${c.invoices ?? 0} invoices · ${c.orders ?? 0} orders · ${c.payments ?? 0} payments · ${c.customers ?? 0} customers</span>`; } },
+      { k: 'created_by', label: 'By' }, { k: 'size', label: 'Size', n: 1, f: r => `${Math.max(1, Math.round(r.size / 1024))} KB` },
+      { k: 'x', label: '', sort: false, f: r => `<button class="btn xs ghost" data-sdl="${r.id}">Download</button> <button class="btn xs ghost" data-srs="${r.id}" style="color:var(--danger)">Restore</button>` },
+    ], { search: false });
+    el.onclick = async e => {
+      const d = e.target.closest('[data-sdl]'), rs = e.target.closest('[data-srs]');
+      if (d) busy(d, async () => { const r = await api('GET', `/api/super/snapshots/${d.dataset.sdl}/download`, null, { raw: true }); saveBlob(await r.blob(), `${t.slug}-snapshot-${d.dataset.sdl}.json`); });
+      if (rs) {
+        const c = await confirmBox('Restore this snapshot?', `<b>${esc(t.business_name)}</b> goes back to exactly how it was when this snapshot was saved — including users and settings. What is there now is saved as a new snapshot first. Type the Business ID <b>${esc(t.slug)}</b> to confirm.`, { ok: 'Restore', danger: true, input: 'Business ID' });
+        if (c) { try { await POST(`/api/super/snapshots/${rs.dataset.srs}/restore`, { confirm: c }, { idem: false }); toast('Snapshot restored'); SA.refresh(); } catch (er) { fail(er); } }
+      }
+    };
+  },
   async detail(v, id) {
     const d = await GET('/api/super/tenants/' + id); const t = d.tenant, s = d.stats || {};
     $('#title').textContent = t.business_name;
@@ -140,10 +185,12 @@ SA.pages.tenants = {
         ${field('Status', `<select name="status">${['trial', 'active', 'suspended'].map(x => opt(x, x[0].toUpperCase() + x.slice(1), t.status)).join('')}</select>`)}${field('Plan', `<select name="plan_id">${SA.planOptions(t.plan_id)}</select>`)}
         ${field('Trial ends', `<input type="datetime-local" name="trial_ends_at" value="${toLocalInput(t.trial_ends_at)}">`)}${field('Paid until', `<input type="datetime-local" name="expires_at" value="${toLocalInput(t.expires_at)}">`)}
         ${field('Internal notes', `<textarea name="notes">${esc(t.notes || '')}</textarea>`, 'span2')}</div>
-        <div class="actions"><button class="btn ghost" id="del" style="color:var(--danger)">Delete business…</button><button class="btn" id="save">Save changes</button></div></div>
+        <div class="actions"><button class="btn ghost" id="del" style="color:var(--danger)">Delete business…</button><button class="btn ghost" id="clr" style="color:var(--danger)">Clear data…</button><button class="btn" id="save">Save changes</button></div></div>
       <div><div class="panel"><div class="head"><div><h2>Users</h2><div class="sub">Reset a password if the owner forgets it</div></div></div><div id="ut"></div></div>
         <div class="panel"><div class="head"><h2>Subscription payments</h2></div><div id="pt"></div></div></div></div>
+      <div class="panel"><div class="head"><div><h2>Safety snapshots</h2><div class="sub">A full copy is saved automatically before data is cleared or restored · last ${5} kept</div></div></div><div id="snp"><div class="sk" style="height:60px"></div></div></div>
       <div class="panel"><div class="head"><h2>Activity by Baybex</h2></div><div id="at"></div></div>`;
+    this.snapshots(v, t);
     dataTable($('#ut', v), d.users, [{ k: 'full_name', label: 'Name', f: r => `<b>${esc(r.full_name)}</b><div class="sub">@${esc(r.username)}</div>` }, { k: 'role', label: 'Role' }, { k: 'last_login', label: 'Last login', f: r => r.last_login ? `<span class="sub">${fdt(r.last_login)}</span>` : '<span class="muted">never</span>' }, { k: 'active', label: '', f: r => r.active ? '' : '<span class="tag gray">disabled</span>' },
       { k: 'x', label: '', sort: false, f: r => `<button class="btn xs ghost" data-pw="${r.id}">Reset password</button>` }], { search: false });
     dataTable($('#pt', v), d.payments, [{ k: 'created_at', label: 'Date', f: r => d10(r.created_at) }, { k: 'plan_name', label: 'Plan' }, { k: 'amount', label: 'Amount', n: 1, f: r => tk(r.amount) }, { k: 'txn_id', label: 'Txn', f: r => `${esc(r.method || '')} ${esc(r.txn_id || '')}` }, { k: 'status', label: 'Status', f: r => `<span class="tag ${r.status === 'approved' ? 'green' : r.status === 'rejected' ? 'red' : 'orange'}">${r.status}</span>` }, { k: 'period_to', label: 'Until', f: r => d10(r.period_to) }], { search: false, empty: 'No payments' });
@@ -162,6 +209,7 @@ SA.pages.tenants = {
     };
     $('#days', v).onclick = async () => { const n = await confirmBox('Give free days', `Adds days to the ${t.status === 'trial' ? 'trial' : 'paid period'} without a payment.`, { ok: 'Add days', input: 'Number of days' }); if (n) { try { const r = await POST(`/api/super/tenants/${id}/extend`, { days: +n }, { idem: false }); toast('Extended', 'until ' + d10(r.to)); SA.refresh(); } catch (e) { fail(e); } } };
     v.addEventListener('click', async e => { const b = e.target.closest('[data-pw]'); if (!b) return; const pw = await confirmBox('Reset password', 'Set a new password for this user. Tell them to change it after logging in.', { ok: 'Reset', input: 'New password (min 6)' }); if (pw) { try { await POST(`/api/super/tenants/${id}/reset-password`, { user_id: +b.dataset.pw, password: pw }, { idem: false }); toast('Password reset'); } catch (er) { fail(er); } } });
+    $('#clr', v).onclick = () => this.clearData(t);
     $('#del', v).onclick = async () => { const c = await confirmBox('Delete business permanently?', `All data of <b>${esc(t.business_name)}</b> is destroyed and cannot be recovered. Download a backup first. Type the Business ID <b>${esc(t.slug)}</b> to confirm.`, { ok: 'Delete forever', danger: true, input: 'Business ID' }); if (c) { try { await api('DELETE', '/api/super/tenants/' + id, { confirm: c }); toast('Business deleted'); SA.go('tenants'); } catch (er) { fail(er); } } };
   },
 };

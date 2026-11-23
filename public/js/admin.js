@@ -7,7 +7,7 @@ App.pages.admin = {
     if (sub) this.tab = sub;
     if (!this.tab || !tabs.find(t => t[0] === this.tab)) this.tab = tabs[0][0];
     v.innerHTML = `<div class="tabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${k === this.tab ? 'on' : ''}">${l}</button>`).join('')}</div><div id="pane" class="tabpane"></div>`;
-    $$('[data-t]', v).forEach(b => b.onclick = () => { this.tab = b.dataset.t; App.refresh(); });
+    $$('[data-t]', v).forEach(b => b.onclick = () => { this.tab = b.dataset.t; App.go('admin/' + b.dataset.t); });   // keep the address in step, or #/admin/<tab> would pin the old tab
     await this[this.tab]($('#pane', v));
   },
   async users(el) {

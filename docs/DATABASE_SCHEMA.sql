@@ -1671,3 +1671,4 @@ ALTER TABLE ONLY tenant_schema.store_purchases
     ADD CONSTRAINT store_purchases_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES tenant_schema.suppliers(id);
 ALTER TABLE ONLY tenant_schema.users
     ADD CONSTRAINT users_role_id_fkey FOREIGN KEY (role_id) REFERENCES tenant_schema.roles(id);
+CREATE TABLE IF NOT EXISTS public.platform_snapshots(id BIGSERIAL PRIMARY KEY, tenant_id INT NOT NULL, reason TEXT, mode TEXT, created_by TEXT, counts JSONB, size INT, data BYTEA NOT NULL, created_at TIMESTAMPTZ DEFAULT now()); -- safety copies taken before Clear data / restore (gzip JSON)

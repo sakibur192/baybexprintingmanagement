@@ -41,7 +41,7 @@ App.pages.ctp = {
       ${can('stock.adjust') ? `<button class="btn ghost" data-e="adjust">± Adjust</button>` : ''}</div></div>
       <div class="tabs">${[['stock', 'Stock Summary'], ['moves', 'Movements'], ['register', 'Stock Register'], ['rates', 'Plate Master & Rates']].map(([k, l]) => `<button data-t="${k}" class="${k === t ? 'on' : ''}">${l}</button>`).join('')}</div><div id="pane" class="tabpane"></div>`;
     $$('[data-e]', v).forEach(b => b.onclick = () => ctpEntryModal(b.dataset.e, () => App.refresh()));
-    $$('[data-t]', v).forEach(b => b.onclick = () => { this.tab = b.dataset.t; App.refresh(); });
+    $$('[data-t]', v).forEach(b => b.onclick = () => { this.tab = b.dataset.t; App.go('ctp/' + b.dataset.t); });
     await this['tab_' + t]($('#pane', v));
   },
   async tab_stock(el) {

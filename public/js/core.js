@@ -590,7 +590,7 @@ const App = {
     $('#app').innerHTML = `<div class="login-wrap">
       <div class="login-art"><div><div class="brand" style="padding:0"><span style="background:#fff;border-radius:12px;padding:5px;display:grid"><img src="/brand/mark.png" alt="Baybex" style="height:34px"></span><div><strong>Baybex Printers Manager</strong><small>BY BAYBEX DIGITAL</small></div></div></div>
         <div class="plates"><div class="plate"><i></i></div><div class="plate"><i></i></div><div class="plate"><i></i></div></div>
-        <div><h1>CTP plates & PVC media, one clean ledger.</h1><p>Stock in pieces and linear feet, billing in square feet, one customer ledger across both divisions — with every entry signed by the employee who made it.</p><div class="cmyk"><span></span><span></span><span></span><span></span></div></div>
+        <div><h1>Printing press, CTP & PVC — one clean ledger.</h1><p>Orders to delivery, plate and roll stock, invoices and dues — one customer ledger across every section, with every entry signed by the employee who made it.</p><div class="cmyk"><span></span><span></span><span></span><span></span></div></div>
         <div class="sub" style="color:#6f89a3">Baybex Digital · ${new Date().getFullYear()}</div></div>
       <div class="login-card"><form class="login-form" id="lf"><h2>Welcome back</h2><div class="sub">Sign in with your employee account</div>
         <label class="field">Business ID<input name="business" autocomplete="organization" required placeholder="e.g. sks-printers" value="${esc(new URLSearchParams(location.search).get('b') || (() => { try { return localStorage.getItem('bbx_business') || ''; } catch (e) { return ''; } })())}"><span class="hint" id="bname"></span></label>
