@@ -454,7 +454,7 @@ tr.rowin{animation:rowIn .4s var(--ease) both}
 .doc .srep-sum div{border-color:#ccd;padding:6px 10px}.doc .srep-sum b{font-size:15px}
 .doc h3.srep-h{font-size:13px;margin:14px 0 6px;border-bottom:2px solid #172b43;padding-bottom:3px}
 /* super admin: clear data */
-.clr-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.clr-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px}
 .clr-opt{display:flex;gap:12px;align-items:flex-start;border:2px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;transition:border-color .15s,background .15s}
 .clr-opt:has(input:checked){border-color:var(--danger);background:#fdecec}
 .clr-opt input{margin-top:4px;accent-color:var(--danger)}
@@ -462,4 +462,4 @@ tr.rowin{animation:rowIn .4s var(--ease) both}
 .clr-opt ul{margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.7}
 .clr-opt .keep{margin-top:8px;font-size:12.5px;color:var(--ok);font-weight:600}
 [data-theme=dark] .clr-opt:has(input:checked){background:#3a1c1c}
-@media(max-width:700px){.clr-grid{grid-template-columns:1fr}}
+@media(max-width:900px){.clr-grid{grid-template-columns:1fr}}

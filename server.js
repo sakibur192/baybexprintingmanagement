@@ -2578,6 +2578,8 @@ const CLEAR_TX = ['pvc_print_entries', 'ctp_invoices', 'ctp_invoice_items', 'pvc
   'payments', 'payment_allocations', 'refunds', 'expenses', 'audit_logs', 'idem_keys'];
 /** lists the business built up: customers, plate sizes, media, store / internal items, machines, suppliers */
 const CLEAR_MASTERS = ['customers', 'ctp_prices', 'ctp_products', 'pvc_media', 'gen_items', 'machines', 'suppliers'];
+/** accounts fully fresh: every record plus the people the business keeps accounts with (customers, suppliers); plates, media, store items, machines stay */
+const CLEAR_PARTIES = ['customers', 'suppliers'];
 const SNAP_KEEP = 5;
 async function tenantCounts() {
   const n = async t => +(await q1(`SELECT COUNT(*)::int n FROM ${t}`)).n;
@@ -2603,14 +2605,14 @@ app.get('/api/super/tenants/:id/data-summary', wrap(async (req, res) => {
 }));
 app.post('/api/super/tenants/:id/clear-data', wrap(async (req, res) => {
   const t = await tenantById(req.params.id), mode = req.body?.mode;
-  if (!['transactions', 'everything'].includes(mode)) bad('Choose what to clear');
+  if (!['transactions', 'ledger', 'everything'].includes(mode)) bad('Choose what to clear');
   if (String(req.body?.confirm || '').trim().toLowerCase() !== t.slug) bad('Type the Business ID exactly to confirm');
   const before = await inTenant(t, tenantCounts);
   const snap = await takeSnapshot(t, req.admin, 'Before clearing data', mode);   // safety copy first — restorable for a while
   await inTenant(t, () => tx(async c => {
-    await c.query(`TRUNCATE ${[...CLEAR_TX, ...(mode === 'everything' ? CLEAR_MASTERS : [])].join(',')} RESTART IDENTITY CASCADE`);
+    await c.query(`TRUNCATE ${[...CLEAR_TX, ...(mode === 'everything' ? CLEAR_MASTERS : mode === 'ledger' ? CLEAR_PARTIES : [])].join(',')} RESTART IDENTITY CASCADE`);
     await c.query(`UPDATE invoice_sequences SET last_no=0`);                       // numbering starts again at 00001
-    if (mode === 'transactions') await c.query(`UPDATE gen_items SET avg_cost=0`);  // no stock left, so no stock value
+    if (mode !== 'everything') await c.query(`UPDATE gen_items SET avg_cost=0`);  // no stock left, so no stock value
     await audit(c, { full_name: req.admin.full_name + ' (Baybex support)' }, 'data_cleared', 'system', null,
       { mode, note: str(req.body.note, 300), snapshot: snap.id, removed: before });
   }));

@@ -29,6 +29,12 @@ const asBiz=async()=>{jar='';await c('POST','/api/login',{business:BIZ,username:
  ok('CTP stock is 0', Array.isArray(sl) && sl.every(x=>!(+x.stock||+x.qty||+x.on_hand||0)), JSON.stringify(sl[0]));
  const dash=await c('GET','/api/dashboard'); ok('Dashboard opens', dash.s===200, dash.d?.error);
  await asSA();
+ const rL=await c('POST',`/api/super/tenants/${t.id}/clear-data`,{mode:'ledger',confirm:BIZ});
+ ok('Accounts fully fresh: customers gone, items kept', rL.s===200 && rL.d.after.customers===0 && rL.d.after.invoices===0 && rL.d.after.items===s0.counts.items-(rL.d.before.items-rL.d.after.items) && rL.d.after.items>0, JSON.stringify(rL.d));
+ await asBiz();
+ ok('Company kept after accounts fresh', (await c('GET','/api/meta')).d.settings.company.name===comp0.name);
+ const prods=(await c('GET','/api/ctp/stock')).d; ok('Plates still listed', (prods.rows||prods).length>0);
+ await asSA();
  const r2=await c('POST',`/api/super/tenants/${t.id}/clear-data`,{mode:'everything',confirm:BIZ});
  ok('Full fresh start', r2.s===200, JSON.stringify(r2.d));
  ok('Customers gone, starter items back', r2.d.after.customers===0 && r2.d.after.items>0 && r2.d.after.users===s0.counts.users, JSON.stringify(r2.d.after));
@@ -36,7 +42,7 @@ const asBiz=async()=>{jar='';await c('POST','/api/login',{business:BIZ,username:
  ok('Company still there after fresh start', (await c('GET','/api/meta')).d.settings.company.name===comp0.name);
  await asSA();
  const sum=(await c('GET',`/api/super/tenants/${t.id}/data-summary`)).d;
- ok(`Snapshots listed (${sum.snapshots.length})`, sum.snapshots.length>=2);
+ ok(`Snapshots listed (${sum.snapshots.length})`, sum.snapshots.length>=3);
  const first=sum.snapshots[sum.snapshots.length-1];
  const dl=await fetch(B+`/api/super/snapshots/${first.id}/download`,{headers:{Cookie:jar}}); const dj=await dl.json();
  ok('Snapshot downloads as backup JSON', dl.status===200 && dj.tables?.ctp_invoices?.length>0);

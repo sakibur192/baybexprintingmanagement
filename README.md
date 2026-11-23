@@ -55,9 +55,9 @@ Logo & brand colour · business details · invoice/challan titles and footer not
 - This README — install, deploy (Coolify / VPS), backup & restore.
 
 ## Tests
-`node tests/acceptance-test.js` (134 checks) and `node tests/press-test.js` (94 checks) against a running server; `node tests/sections-test.js` (21 checks) after seeding the demo business. `node tests/cleardata-test.js` (22 checks) covers the super-admin Clear data / snapshot / restore flow (it restores the demo data at the end).
+`node tests/acceptance-test.js` (134 checks) and `node tests/press-test.js` (94 checks) against a running server; `node tests/sections-test.js` (21 checks) after seeding the demo business. `node tests/cleardata-test.js` (25 checks) covers the super-admin Clear data / snapshot / restore flow (it restores the demo data at the end).
 
-**Super admin → Business → Clear data…** wipes a tenant's daily records (or does a full fresh start) while keeping business details, users, roles, settings and subscription. A gzip safety snapshot is stored in `public.platform_snapshots` first (last 5 per business) and can be downloaded or restored from the business page.
+**Super admin → Business → Clear data…** wipes a tenant's daily records, does an accounts-only fresh start (records + customers + suppliers, keeping plates/media/items/machines), or a full fresh start while keeping business details, users, roles, settings and subscription. A gzip safety snapshot is stored in `public.platform_snapshots` first (last 5 per business) and can be downloaded or restored from the business page.
 `node tests/acceptance-test.js` (server running) — 98 checks: spec v1.0–1.3 acceptance tests + SaaS isolation, trial lock, payment approval, suspension, impersonation, Android release upload/version check/forced update/download, brochure upload & download, discounts & coupons.
 
 ## Deploy (Coolify / VPS)

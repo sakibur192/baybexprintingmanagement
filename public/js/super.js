@@ -130,6 +130,9 @@ SA.pages.tenants = {
         <label class="clr-opt"><input type="radio" name="mode" value="transactions" checked><div><b>Daily records only</b><small>শুধু হিসাব-নিকাশ</small>
           <ul><li>${n(c.invoices)} invoices · ${n(c.orders)} orders · ${n(c.quotations)} quotations · ${n(c.challans)} challans</li><li>${n(c.payments)} payments · ${n(c.refunds)} refunds · ${n(c.expenses)} expenses</li><li>${n(c.stock_entries)} stock / print entries · activity log</li></ul>
           <div class="keep">Keeps ${n(c.customers)} customers and ${n(c.items)} plates / media / store items (their stock becomes 0)</div></div></label>
+        <label class="clr-opt"><input type="radio" name="mode" value="ledger"><div><b>Accounts fully fresh</b><small>শুধু হিসাব-নিকাশ পুরো ফ্রেশ</small>
+          <ul><li>Everything in “Daily records only”</li><li>+ ${n(c.customers)} customers and all suppliers (their ledgers, dues, advances)</li></ul>
+          <div class="keep">Keeps plates, media, store items, machines, price lists, business details, users, settings</div></div></label>
         <label class="clr-opt"><input type="radio" name="mode" value="everything"><div><b>Full fresh start</b><small>পুরো ফ্রেশ — নতুন ব্যবসার মতো</small>
           <ul><li>Everything in “Daily records only”</li><li>+ ${n(c.customers)} customers, ${n(c.items)} plates / media / store items, machines, suppliers</li><li>Starter plate sizes, media and internal items are put back</li></ul>
           <div class="keep">Keeps business details, ${n(c.users)} users, roles, settings, subscription</div></div></label>
@@ -151,7 +154,7 @@ SA.pages.tenants = {
     if (!el.isConnected) return;
     if (!snapshots.length) { el.innerHTML = '<div class="empty" style="padding:18px">No snapshots yet — one is saved automatically the first time data is cleared.</div>'; return; }
     dataTable(el, snapshots, [
-      { k: 'created_at', label: 'Saved', f: r => fdt(r.created_at) }, { k: 'reason', label: 'Why', f: r => `${esc(r.reason || '')}${r.mode && r.mode !== 'restore' ? ` <span class="tag gray">${r.mode === 'everything' ? 'full fresh' : 'records only'}</span>` : ''}` },
+      { k: 'created_at', label: 'Saved', f: r => fdt(r.created_at) }, { k: 'reason', label: 'Why', f: r => `${esc(r.reason || '')}${r.mode && r.mode !== 'restore' ? ` <span class="tag gray">${({ everything: 'full fresh', ledger: 'accounts fresh', transactions: 'records only' })[r.mode] || r.mode}</span>` : ''}` },
       { k: 'counts', label: 'It holds', sort: false, f: r => { const c = r.counts || {}; return `<span class="sub">${c.invoices ?? 0} invoices · ${c.orders ?? 0} orders · ${c.payments ?? 0} payments · ${c.customers ?? 0} customers</span>`; } },
       { k: 'created_by', label: 'By' }, { k: 'size', label: 'Size', n: 1, f: r => `${Math.max(1, Math.round(r.size / 1024))} KB` },
       { k: 'x', label: '', sort: false, f: r => `<button class="btn xs ghost" data-sdl="${r.id}">Download</button> <button class="btn xs ghost" data-srs="${r.id}" style="color:var(--danger)">Restore</button>` },
