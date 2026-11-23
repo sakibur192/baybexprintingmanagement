@@ -14,7 +14,7 @@ function paymentModal({ customer = null, invoice = null, order = null, amount = 
       <div id="alloc" class="mt"></div><div class="note" id="pnote"></div>
       <div class="actions"><button class="btn ghost" data-x>Cancel</button><button class="btn green" id="pms">${ICON.check} Save payment</button></div>`,
   });
-  let mode = invoice ? 'manual' : 'auto';
+  let mode = invoice ? 'manual' : 'auto', touched = false;   // touched = staff typed their own allocation amounts
   const key = uid();
   const drawAlloc = () => {
     const amt = +$('[name=amount]', m.el).value || 0;
@@ -28,7 +28,7 @@ function paymentModal({ customer = null, invoice = null, order = null, amount = 
       let a; if (mode === 'auto') { a = Math.min(left, o.due); left = r2(left - a); } else a = o._a ?? (invoice && o.division === invoice.division && o.id === invoice.id ? Math.min(amt, o.due) : 0);
       return `<tr><td>${divTag(o.division)} <b>${esc(o.inv_no)}</b></td><td>${fdate(o.date)}</td><td class="n">${tk(o.due)}</td><td class="n">${mode === 'auto' ? `<b>${tk(a)}</b>` : `<input class="inp" style="text-align:right" type="number" step="0.01" min="0" max="${o.due}" data-ai="${i}" value="${a || ''}">`}</td></tr>`;
     }).join('')}</tbody></table></div>`;
-    $$('[data-ai]', m.el).forEach(inp => inp.oninput = () => { open[+inp.dataset.ai]._a = +inp.value || 0; note(); });
+    $$('[data-ai]', m.el).forEach(inp => inp.oninput = () => { touched = true; open[+inp.dataset.ai]._a = +inp.value || 0; note(); });
     if (mode === 'manual') open.forEach((o, i) => { const inp = $(`[data-ai="${i}"]`, m.el); o._a = +inp.value || 0; });
     note();
   };
@@ -49,13 +49,19 @@ function paymentModal({ customer = null, invoice = null, order = null, amount = 
   };
   $('[name=order_id]', m.el).onchange = e => { ord = e.target.value; drawAlloc(); };
   custPicker($('#pmc', m.el), { value: cust, onPick: c => { cust = c; ord = ''; load(); } });
-  $$('#amode button', m.el).forEach(b => b.onclick = () => { mode = b.dataset.m; open.forEach(o => delete o._a); drawAlloc(); });
-  $('[name=amount]', m.el).oninput = () => (mode === 'auto' ? drawAlloc() : note());
+  $$('#amode button', m.el).forEach(b => b.onclick = () => { mode = b.dataset.m; touched = false; open.forEach(o => delete o._a); drawAlloc(); });
+  // a new amount re-spreads the allocation (partial payment: allocate only what was received) unless staff typed their own split
+  $('[name=amount]', m.el).oninput = () => { if (mode === 'auto' || !touched) { open.forEach(o => delete o._a); drawAlloc(); } else note(); };
   $('[data-x]', m.el).onclick = m.close;
   load();
   $('#pms', m.el).onclick = () => busy($('#pms', m.el), async () => {
     if (!cust) return toast('Select a customer', '', 'warn');
     if (!requireFields(m.el, ['amount'])) return;
+    const amt = +$('[name=amount]', m.el).value || 0;
+    if (mode === 'manual' && !ord) {   // never send more than was received — the rest of the invoice simply stays due
+      if (touched && open.reduce((x, o) => x + (o._a || 0), 0) > amt + 0.004) return toast('Allocation is more than the amount received', 'Lower the invoice amounts or raise the total', 'warn');
+      let left = amt; open.forEach(o => { o._a = Math.round(Math.max(0, Math.min(o._a || 0, o.due, left)) * 100) / 100; left -= o._a; });
+    }
     const b = { ...formData($('#pmf', m.el)), customer_id: cust.id, order_id: ord || null, auto: mode === 'auto', allocations: !ord && mode === 'manual' ? open.filter(o => o._a > 0).map(o => ({ division: o.division, invoice_id: o.id, amount: o._a })) : [] };
     const r = await POST('/api/payments', b, { idemKey: key });
     toast('Payment recorded', `${r.receipt_no} · ${tk(r.amount)}${r.unallocated > 0 ? ' · ' + tk(r.unallocated) + ' advance' : ''}`); m.close(); done && done(r);
